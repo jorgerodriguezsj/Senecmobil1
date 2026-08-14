@@ -147,8 +147,6 @@ fun PushToTalkScreen() {
         status = if (hasRecord) "Listo" else "Toca el botón para dar permisos"
     }
 
-    val allPermsOk = hasRecord && hasContacts && hasCall && hasSms
-
     Scaffold { padding ->
         Column(
             modifier = Modifier
@@ -212,15 +210,15 @@ fun PushToTalkScreen() {
                     .background(
                         when {
                             pressed -> Color(0xFFB71C1C)
-                            !modelReady -> Color(0xFF9E9E9E)
+                            !modelReady || !hasRecord -> Color(0xFF9E9E9E)
                             else -> Color(0xFFE53935)
                         },
                     )
-                    .pointerInput(allPermsOk, modelReady, busy, initialPrompt) {
+                    .pointerInput(hasRecord, modelReady, busy, initialPrompt) {
                         detectTapGestures(
                             onPress = {
                                 when {
-                                    !allPermsOk -> permsLauncher.launch(REQUESTED_PERMISSIONS)
+                                    !hasRecord -> permsLauncher.launch(REQUESTED_PERMISSIONS)
                                     !modelReady -> Unit
                                     busy -> Unit
                                     else -> {
