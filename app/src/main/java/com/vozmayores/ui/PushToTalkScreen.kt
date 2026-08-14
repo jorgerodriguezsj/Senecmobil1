@@ -26,12 +26,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vozmayores.audio.WhisperEngine
 
 private const val TAG = "Voz.PushToTalkScreen"
 
 @Composable
 fun PushToTalkScreen() {
     var pressed by remember { mutableStateOf(false) }
+    val systemInfo = remember { runCatching { WhisperEngine.nativeSystemInfo() }.getOrElse { it.message.orEmpty() } }
 
     Scaffold { padding ->
         Column(
@@ -75,6 +77,13 @@ fun PushToTalkScreen() {
                 modifier = Modifier.padding(top = 32.dp),
                 fontSize = 20.sp,
                 color = MaterialTheme.colorScheme.onSurface,
+            )
+
+            Text(
+                text = systemInfo,
+                modifier = Modifier.padding(top = 24.dp, start = 16.dp, end = 16.dp),
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

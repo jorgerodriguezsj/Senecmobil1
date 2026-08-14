@@ -21,8 +21,22 @@ android {
             abiFilters += "arm64-v8a"
         }
 
-        // El CMakeLists real se añade en la fase 2 (whisper.cpp).
-        // Se deja preparado el bloque para no tocarlo entonces.
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DCMAKE_BUILD_TYPE=Release",
+                )
+                cppFlags += "-std=c++17"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {
