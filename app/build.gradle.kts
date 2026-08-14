@@ -70,6 +70,13 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    androidResources {
+        // El modelo Whisper se sirve tal cual desde assets/ y se copia
+        // a filesDir en el primer arranque. Sin compresión zip para que
+        // la copia sea straight-through.
+        noCompress += "bin"
+    }
 }
 
 dependencies {

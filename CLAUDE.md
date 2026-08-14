@@ -87,13 +87,21 @@ app/src/main/
 ## Decisiones tomadas (no reabrir)
 
 - Sin frameworks tipo LangChain. Loop de agente propio.
-- Los modelos NO se meten en el repo. Se copian con `adb push` a
-  `/sdcard/Android/data/com.vozmayores/files/models/`.
+- Los modelos **no se commitean al repo** (evitar bloat de git) pero
+  **sí van dentro del APK** vía `assets/`. El workflow de CI descarga
+  el `.bin` desde huggingface y lo mete en
+  `app/src/main/assets/models/` antes de `assembleDebug`.
+  `ModelInstaller.ensureInstalled(context)` lo copia a `filesDir` en
+  el primer arranque y desde ahí lo abre Whisper. Sin `adb push`, sin
+  descargas en runtime.
+  (Revisión de la decisión previa "adb push a external files": se
+  cambió por comodidad — el usuario objetivo instala el APK y ya está.)
 - Router híbrido regex + LLM por latencia y batería (el LLM sólo si
   el regex no matchea).
 - Confirmación TTS antes de llamadas y mensajes.
 - ABI objetivo inicial: `arm64-v8a` únicamente. Nada de x86, armv7, etc.
-- Sin red ni telemetría. Todo el pipeline es on-device.
+- Sin red ni telemetría en runtime. La única llamada de red es la
+  descarga del modelo en el runner de CI.
 
 ## Plan por fases
 
@@ -135,14 +143,15 @@ mostrar errores si los hay, ESPERAR confirmación antes de continuar.
 ```
 ./gradlew assembleDebug         # compila APK de debug
 ./gradlew installDebug          # instala en el dispositivo conectado
-adb push modelo.bin /sdcard/Android/data/com.vozmayores/files/models/
 adb logcat -s Voz.\*           # ver sólo nuestros logs
 ```
 
 ## Cosas que NO hay que hacer
 
-- No añadir dependencias de red (Retrofit, OkHttp para producción, etc.).
+- No añadir dependencias de red en runtime (Retrofit, OkHttp para
+  producción, etc.). La única red permitida está en el CI descargando
+  el modelo desde huggingface.
 - No añadir analytics, crash reporting, Firebase.
-- No meter modelos en el APK ni en `assets/` — el APK explota de tamaño.
+- No commitear modelos al repo git.
 - No hacer target de otras ABIs sin discutirlo antes.
 - No introducir DI frameworks. Instancias manuales por ahora.

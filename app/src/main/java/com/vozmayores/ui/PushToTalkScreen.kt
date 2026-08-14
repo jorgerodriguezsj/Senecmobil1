@@ -37,24 +37,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.vozmayores.audio.AudioRecorder
+import com.vozmayores.audio.ModelInstaller
 import com.vozmayores.audio.WhisperEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 private const val TAG = "Voz.PushToTalkScreen"
-private const val MODEL_FILENAME = "ggml-base-q5_1.bin"
 
 @Composable
 fun PushToTalkScreen() {
     val context = LocalContext.current
     val recorder = remember { AudioRecorder() }
     val scope = rememberCoroutineScope()
-
-    val modelFile = remember {
-        File(context.getExternalFilesDir(null), "models/$MODEL_FILENAME")
-    }
 
     var hasPermission by remember {
         mutableStateOf(
@@ -84,13 +79,19 @@ fun PushToTalkScreen() {
             status = if (hasPermission) "Listo" else "Falta permiso de micrófono"
             return@LaunchedEffect
         }
-        if (!modelFile.exists()) {
-            status = "Falta el modelo en:\n${modelFile.absolutePath}"
+        if (!ModelInstaller.isAssetPresent(context)) {
+            status = "El APK no incluye el modelo Whisper"
             return@LaunchedEffect
         }
-        status = "Cargando modelo…"
+        status = "Preparando modelo…"
         val ok = withContext(Dispatchers.IO) {
-            WhisperEngine.loadModel(modelFile.absolutePath)
+            runCatching {
+                val f = ModelInstaller.ensureInstalled(context)
+                WhisperEngine.loadModel(f.absolutePath)
+            }.getOrElse {
+                Log.e(TAG, "no pude preparar el modelo", it)
+                false
+            }
         }
         modelReady = ok
         status = when {

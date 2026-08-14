@@ -46,6 +46,26 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      - name: Cache Whisper model
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/models/ggml-base-q5_1.bin
+          key: whisper-ggml-base-q5_1-v1
+
+      - name: Download Whisper model
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p app/src/main/assets/models
+          curl -sSL --fail --retry 3 -o app/src/main/assets/models/ggml-base-q5_1.bin \
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin"
+
+      - name: Verify Whisper model
+        run: |
+          test -s app/src/main/assets/models/ggml-base-q5_1.bin
+          ls -la app/src/main/assets/models/ggml-base-q5_1.bin
+          sha256sum app/src/main/assets/models/ggml-base-q5_1.bin
+
       - name: assembleDebug
         run: ./gradlew --no-daemon --stacktrace assembleDebug
 
