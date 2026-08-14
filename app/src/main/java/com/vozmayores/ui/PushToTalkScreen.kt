@@ -1,11 +1,22 @@
 package com.vozmayores.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -32,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -86,6 +98,8 @@ fun PushToTalkScreen() {
     val tts = remember { Tts(context) }
     val executor = remember { ToolExecutor(context, tts, contactResolver) }
     val scope = rememberCoroutineScope()
+    val haptics = remember { HapticFeedback(context) }
+    val level by recorder.level.collectAsState()
 
     DisposableEffect(tts) { onDispose { tts.shutdown() } }
 
@@ -243,8 +257,10 @@ fun PushToTalkScreen() {
 
             PttButton(
                 pressed = pressed,
+                busy = busy,
                 enabled = modelReady && hasRecord,
                 scale = scale,
+                level = level,
                 onPress = {
                     when {
                         !hasRecord -> permsLauncher.launch(REQUESTED_PERMISSIONS)
@@ -257,11 +273,13 @@ fun PushToTalkScreen() {
                                 status = "No pude arrancar la grabación"
                             } else {
                                 pressed = true
+                                haptics.buzz(30)
                                 status = "Escuchando…"
                                 try {
                                     tryAwaitRelease()
                                 } finally {
                                     pressed = false
+                                    haptics.buzz(60)
                                     Log.d(TAG, "PTT up")
                                     busy = true
                                     status = "Procesando…"
@@ -400,42 +418,113 @@ private fun SettingsRow(
 @Composable
 private fun PttButton(
     pressed: Boolean,
+    busy: Boolean,
     enabled: Boolean,
     scale: Float,
+    level: Float,
     onPress: suspend androidx.compose.foundation.gestures.PressGestureScope.(androidx.compose.ui.geometry.Offset) -> Unit,
 ) {
-    val bg = when {
-        pressed -> Color(0xFF8E0E0E)
-        !enabled -> Color(0xFF9E9E9E)
+    // Color según estado, con transición suave.
+    val targetBg = when {
+        !enabled -> Color(0xFF9E9E9E)          // gris: sin permiso o modelo no listo
+        pressed -> Color(0xFF8E0E0E)            // carmesí: escuchando
+        busy -> Color(0xFFE68900)               // ámbar: procesando/ejecutando
         else -> MaterialTheme.colorScheme.primary
     }
+    val bg by animateColorAsState(targetBg, tween(280), label = "ptt-bg")
+
     Box(
-        modifier = Modifier
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .size(280.dp)
-            .shadow(elevation = 14.dp, shape = CircleShape)
-            .clip(CircleShape)
-            .background(bg)
-            .pointerInput(enabled) {
-                detectTapGestures(onPress = onPress)
-            },
+        modifier = Modifier.size(320.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = if (pressed) "🎙️" else "🎤",
-                fontSize = 84.sp,
+        // Pulse ring que sale del botón mientras se graba. Se
+        // modula con `level` para que suba con el volumen del micro.
+        if (pressed) {
+            val transition = rememberInfiniteTransition(label = "pulse")
+            val pulseScale by transition.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.28f + level * 0.15f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1100, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Restart,
+                ),
+                label = "pulse-scale",
             )
-            Text(
-                text = if (pressed) "ESCUCHO" else "HABLA",
-                color = Color.White,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.padding(top = 4.dp),
+            val pulseAlpha by transition.animateFloat(
+                initialValue = 0.42f,
+                targetValue = 0f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1100, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart,
+                ),
+                label = "pulse-alpha",
             )
+            Box(
+                modifier = Modifier
+                    .size(280.dp)
+                    .graphicsLayer {
+                        scaleX = pulseScale
+                        scaleY = pulseScale
+                        alpha = pulseAlpha
+                    }
+                    .clip(CircleShape)
+                    .background(bg),
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .size(280.dp)
+                .shadow(elevation = 14.dp, shape = CircleShape)
+                .clip(CircleShape)
+                .background(bg)
+                .pointerInput(enabled) {
+                    detectTapGestures(onPress = onPress)
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = when {
+                        pressed -> "🎙️"
+                        busy -> "⏳"
+                        else -> "🎤"
+                    },
+                    fontSize = 84.sp,
+                )
+                Text(
+                    text = when {
+                        pressed -> "ESCUCHO"
+                        busy -> "…"
+                        else -> "HABLA"
+                    },
+                    color = Color.White,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+private class HapticFeedback(context: Context) {
+    private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+    } else {
+        @Suppress("DEPRECATION")
+        context.getSystemService(Vibrator::class.java)
+    }
+
+    fun buzz(durationMs: Long) {
+        val v = vibrator ?: return
+        if (!v.hasVibrator()) return
+        runCatching {
+            v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
         }
     }
 }

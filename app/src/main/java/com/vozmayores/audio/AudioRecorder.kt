@@ -10,8 +10,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.log10
+import kotlin.math.sqrt
 
 private const val TAG = "Voz.AudioRecorder"
 
@@ -27,6 +32,14 @@ class AudioRecorder {
     private var readerJob: Job? = null
     private val chunks = mutableListOf<ShortArray>()
     private var totalSamples = 0
+
+    /**
+     * Nivel de audio del último chunk leído, normalizado 0..1 con
+     * escala perceptual (dB → 0..1). La UI lo lee para animar el
+     * pulso del botón mientras se graba.
+     */
+    private val _level = MutableStateFlow(0f)
+    val level: StateFlow<Float> = _level.asStateFlow()
 
     @SuppressLint("MissingPermission")
     fun start(): Boolean {
@@ -77,6 +90,7 @@ class AudioRecorder {
                         chunks.add(buf.copyOf(n))
                         totalSamples += n
                     }
+                    _level.value = computeLevel(buf, n)
                 } else if (n < 0) {
                     Log.e(TAG, "AudioRecord.read error $n")
                     break
@@ -90,6 +104,7 @@ class AudioRecorder {
     suspend fun stop(): ShortArray {
         readerJob?.cancelAndJoin()
         readerJob = null
+        _level.value = 0f
         record?.let { ar ->
             try {
                 ar.stop()
@@ -112,5 +127,18 @@ class AudioRecorder {
         }
         Log.d(TAG, "stop samples=${out.size} duration=${out.size * 1000L / SAMPLE_RATE_HZ}ms")
         return out
+    }
+
+    private fun computeLevel(buf: ShortArray, n: Int): Float {
+        if (n <= 0) return 0f
+        var sum = 0.0
+        for (i in 0 until n) {
+            val v = buf[i].toDouble() / 32768.0
+            sum += v * v
+        }
+        val rms = sqrt(sum / n)
+        // dB perceptual: −60 dB (silencio) → 0, 0 dB (max) → 1.
+        val db = 20.0 * log10(rms + 1e-9)
+        return (((db + 60.0) / 60.0).coerceIn(0.0, 1.0)).toFloat()
     }
 }
