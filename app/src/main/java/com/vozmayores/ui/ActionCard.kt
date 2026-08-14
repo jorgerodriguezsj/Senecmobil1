@@ -21,12 +21,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vozmayores.intent.IntentAction
+import com.vozmayores.intent.IntentSource
 
 data class HistoryEntry(
     val intent: IntentAction,
     val phone: String?,
     val simulated: Boolean,
     val message: String,
+    val source: IntentSource = IntentSource.NONE,
+    val llmRaw: String? = null,
 )
 
 @Composable
@@ -135,6 +138,30 @@ fun ActionCard(entry: HistoryEntry) {
                 text = entry.message,
                 color = Color.White.copy(alpha = 0.7f),
                 fontSize = 12.sp,
+            )
+        }
+
+        val sourceLabel = when (entry.source) {
+            IntentSource.LOCAL -> "🔎 regex"
+            IntentSource.LLM -> "🧠 LLM"
+            IntentSource.NONE -> null
+        }
+        if (sourceLabel != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = sourceLabel,
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+
+        if (!entry.llmRaw.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "raw: ${entry.llmRaw.take(300)}",
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 11.sp,
             )
         }
     }

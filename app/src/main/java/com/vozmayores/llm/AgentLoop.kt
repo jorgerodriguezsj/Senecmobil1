@@ -8,56 +8,50 @@ import org.json.JSONObject
 private const val TAG = "Voz.AgentLoop"
 
 /**
- * Fallback del [com.vozmayores.intent.IntentRouter] cuando el
- * matcher local no reconoce la frase. Envuelve al [LlmEngine] con:
- *
- *  1) construcción del prompt ChatML de Qwen3 con las herramientas,
- *     la lista de contactos y unos pocos ejemplos few-shot;
- *  2) parser JSON tolerante que ignora texto pre/post y admite
- *     claves en español y en inglés (por si el LLM decide que "hoy
- *     hablo en inglés");
- *  3) mapeo del tool JSON a un [IntentAction].
- *
- * No mantiene contexto entre llamadas — cada frase es una petición
- * independiente. La KV cache se limpia dentro del JNI en cada
- * `LlmEngine.generate`.
+ * Resultado de una interpretación por el LLM. `raw` contiene el
+ * texto exacto que devolvió el modelo antes del parseo — se muestra
+ * en la UI para poder ver por qué falla una interpretación cuando
+ * el LLM devuelve algo inesperado.
  */
+data class AgentResult(val action: IntentAction, val raw: String)
+
 class AgentLoop {
 
-    fun route(userInput: String, contacts: List<String>): IntentAction {
+    fun routeVerbose(userInput: String, contacts: List<String>): AgentResult {
         val prompt = buildPrompt(userInput, contacts)
         Log.d(TAG, "generando para: '$userInput' (${contacts.size} contactos)")
-        val raw = LlmEngine.generate(prompt, maxTokens = 128)
-        Log.d(TAG, "raw: '${raw.take(200)}${if (raw.length > 200) "…" else ""}'")
-        return parse(raw) ?: IntentAction.Unknown
+        val raw = LlmEngine.generate(prompt, maxTokens = 96)
+        Log.d(TAG, "raw: '${raw.take(300)}${if (raw.length > 300) "…" else ""}'")
+        val action = parse(raw) ?: IntentAction.Unknown
+        return AgentResult(action, raw)
     }
+
+    fun route(userInput: String, contacts: List<String>): IntentAction =
+        routeVerbose(userInput, contacts).action
 
     fun buildPrompt(userInput: String, contacts: List<String>): String {
         val contactList = contacts.take(30).joinToString(", ").ifBlank { "(sin contactos)" }
+        // Qwen3 emite <think>…</think> por defecto. /no_think en el
+        // user turn lo desactiva. Además, prompt más corto y directo:
+        // menos ejemplos, más énfasis en "solo JSON en una línea".
         return buildString {
             append("<|im_start|>system\n")
             append(
-                "Eres el asistente de voz de un móvil de una persona mayor. " +
-                    "Traduces lo que dice en un objeto JSON que llama a una " +
-                    "herramienta. RESPONDE SOLO CON EL JSON, sin explicaciones, " +
-                    "sin markdown, sin razonar en voz alta.\n\n",
+                "Traduce lo que dice el usuario a un objeto JSON de una sola línea " +
+                    "que llama a UNA herramienta. Solo JSON, nada más.\n\n",
             )
             append(ToolDefinitions.TOOLS_DOC)
-            append("\n\nContactos disponibles: ")
+            append("\n\nContactos: ")
             append(contactList)
             append("\n\nEjemplos:\n")
-            append("Usuario: llama a pepe\n")
-            append("{\"tool\":\"llamar\",\"args\":{\"contacto\":\"Pepe\"}}\n\n")
-            append("Usuario: mándale un wasap a maría diciendo llego tarde\n")
-            append("{\"tool\":\"whatsapp\",\"args\":{\"contacto\":\"María\",\"mensaje\":\"llego tarde\"}}\n\n")
-            append("Usuario: pon una alarma para mañana a las ocho y media\n")
-            append("{\"tool\":\"alarma\",\"args\":{\"hora\":\"08:30\",\"etiqueta\":\"mañana\"}}\n\n")
-            append("Usuario: qué hora es\n")
-            append("{\"tool\":\"responder\",\"args\":{\"texto\":\"No lo sé, mira arriba del móvil.\"}}\n")
+            append("llama a pepe → {\"tool\":\"llamar\",\"args\":{\"contacto\":\"Pepe\"}}\n")
+            append("wasap a maria diciendo hola → {\"tool\":\"whatsapp\",\"args\":{\"contacto\":\"María\",\"mensaje\":\"hola\"}}\n")
+            append("alarma a las 8 → {\"tool\":\"alarma\",\"args\":{\"hora\":\"08:00\"}}\n")
+            append("no sé qué decirte → {\"tool\":\"responder\",\"args\":{\"texto\":\"Vale.\"}}\n")
             append("<|im_end|>\n")
             append("<|im_start|>user\n")
-            append(userInput)
-            append("\n<|im_end|>\n")
+            append(userInput.trim())
+            append(" /no_think\n<|im_end|>\n")
             append("<|im_start|>assistant\n")
         }
     }
@@ -149,16 +143,15 @@ class AgentLoop {
     }
 
     private fun extractJson(raw: String): String? {
-        val trimmed = raw.trim()
-        val start = trimmed.indexOf('{')
+        // Tira cualquier <think>…</think> que Qwen emita por delante.
+        val cleaned = raw.replace(Regex("<think>[\\s\\S]*?</think>", RegexOption.IGNORE_CASE), "").trim()
+        val start = cleaned.indexOf('{')
         if (start < 0) return null
-        // Descuenta llaves con conteo de profundidad ignorando las que
-        // aparecen dentro de strings JSON.
         var depth = 0
         var inString = false
         var escape = false
-        for (i in start until trimmed.length) {
-            val c = trimmed[i]
+        for (i in start until cleaned.length) {
+            val c = cleaned[i]
             when {
                 escape -> escape = false
                 c == '\\' -> escape = true
@@ -167,12 +160,10 @@ class AgentLoop {
                 !inString && c == '{' -> depth++
                 !inString && c == '}' -> {
                     depth--
-                    if (depth == 0) return trimmed.substring(start, i + 1)
+                    if (depth == 0) return cleaned.substring(start, i + 1)
                 }
             }
         }
-        // JSON abierto pero sin cerrar → devuelve lo que hay y que
-        // JSONObject decida si lo salva o no.
-        return trimmed.substring(start)
+        return cleaned.substring(start)
     }
 }

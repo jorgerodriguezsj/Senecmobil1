@@ -59,6 +59,7 @@ import com.vozmayores.audio.ModelInstaller
 import com.vozmayores.audio.WhisperEngine
 import com.vozmayores.intent.IntentAction
 import com.vozmayores.intent.IntentRouter
+import com.vozmayores.intent.IntentSource
 import com.vozmayores.intent.LocalMatcher
 import com.vozmayores.llm.AgentLoop
 import com.vozmayores.llm.LlmEngine
@@ -129,7 +130,13 @@ fun PushToTalkScreen() {
     var history by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     var simulate by remember { mutableStateOf(true) }
 
-    suspend fun record(intent: IntentAction, simulated: Boolean, message: String) {
+    suspend fun record(
+        intent: IntentAction,
+        simulated: Boolean,
+        message: String,
+        source: IntentSource = IntentSource.NONE,
+        llmRaw: String? = null,
+    ) {
         val phone = withContext(Dispatchers.IO) {
             when (intent) {
                 is IntentAction.Call     -> contactResolver.resolvePhoneNumber(intent.contact)
@@ -138,7 +145,7 @@ fun PushToTalkScreen() {
                 else -> null
             }
         }
-        history = (listOf(HistoryEntry(intent, phone, simulated, message)) + history).take(5)
+        history = (listOf(HistoryEntry(intent, phone, simulated, message, source, llmRaw)) + history).take(5)
     }
 
     LaunchedEffect(Unit) {
@@ -270,12 +277,12 @@ fun PushToTalkScreen() {
                                         }
                                         transcript = text.trim().ifEmpty { "(silencio)" }
                                         status = if (llmReady) "Interpretando…" else "Buscando comando…"
-                                        val intent = withContext(Dispatchers.IO) {
+                                        val routed = withContext(Dispatchers.IO) {
                                             router.route(transcript, contactNames)
                                         }
                                         status = if (simulate) "Simulando…" else "Ejecutando…"
-                                        val msg = executor.execute(intent, simulate)
-                                        record(intent, simulated = simulate, message = msg)
+                                        val msg = executor.execute(routed.action, simulate)
+                                        record(routed.action, simulate, msg, routed.source, routed.llmRaw)
                                         status = "Listo"
                                         busy = false
                                     }
