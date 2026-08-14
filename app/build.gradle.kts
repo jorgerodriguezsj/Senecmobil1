@@ -72,10 +72,10 @@ android {
     }
 
     androidResources {
-        // El modelo Whisper se sirve tal cual desde assets/ y se copia
-        // a filesDir en el primer arranque. Sin compresión zip para que
-        // la copia sea straight-through.
-        noCompress += "bin"
+        // Los modelos (Whisper .bin, Qwen3 .gguf) se sirven tal cual
+        // desde assets/ y se copian a filesDir en el primer arranque.
+        // Sin compresión zip para que la copia sea straight-through.
+        noCompress += listOf("bin", "gguf")
     }
 }
 

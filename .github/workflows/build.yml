@@ -47,24 +47,39 @@ jobs:
             gradle-${{ runner.os }}-
 
       - name: Cache Whisper model
-        id: cache-model
+        id: cache-whisper
         uses: actions/cache@v4
         with:
           path: app/src/main/assets/models/ggml-base-q5_1.bin
           key: whisper-ggml-base-q5_1-v1
 
       - name: Download Whisper model
-        if: steps.cache-model.outputs.cache-hit != 'true'
+        if: steps.cache-whisper.outputs.cache-hit != 'true'
         run: |
           mkdir -p app/src/main/assets/models
           curl -sSL --fail --retry 3 -o app/src/main/assets/models/ggml-base-q5_1.bin \
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin"
 
-      - name: Verify Whisper model
+      - name: Cache Qwen3 LLM model
+        id: cache-llm
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/models/qwen3-0.6b-instruct-q4_k_m.gguf
+          key: qwen3-0.6b-instruct-q4-k-m-v1
+
+      - name: Download Qwen3 LLM model
+        if: steps.cache-llm.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p app/src/main/assets/models
+          curl -sSL --fail --retry 3 -o app/src/main/assets/models/qwen3-0.6b-instruct-q4_k_m.gguf \
+            "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
+
+      - name: Verify models
         run: |
           test -s app/src/main/assets/models/ggml-base-q5_1.bin
-          ls -la app/src/main/assets/models/ggml-base-q5_1.bin
-          sha256sum app/src/main/assets/models/ggml-base-q5_1.bin
+          test -s app/src/main/assets/models/qwen3-0.6b-instruct-q4_k_m.gguf
+          ls -la app/src/main/assets/models/
+          sha256sum app/src/main/assets/models/*.bin app/src/main/assets/models/*.gguf
 
       - name: assembleDebug
         run: ./gradlew --no-daemon --stacktrace assembleDebug
