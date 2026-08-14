@@ -1,0 +1,22 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+
+# Gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Kotlin
+*.hprof
+
+# Modelos on-device (se copian con adb push, no van al repo)
+*.bin
+*.gguf
+*.ggml
