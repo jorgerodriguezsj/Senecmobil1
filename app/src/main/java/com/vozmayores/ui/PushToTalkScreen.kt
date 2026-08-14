@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -117,8 +118,20 @@ fun PushToTalkScreen() {
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var transcript by remember { mutableStateOf("") }
-    var resultText by remember { mutableStateOf("") }
+    var history by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     var simulate by remember { mutableStateOf(true) }
+
+    suspend fun record(intent: IntentAction, simulated: Boolean, message: String) {
+        val phone = withContext(Dispatchers.IO) {
+            when (intent) {
+                is IntentAction.Call     -> contactResolver.resolvePhoneNumber(intent.contact)
+                is IntentAction.WhatsApp -> contactResolver.resolvePhoneNumber(intent.contact)
+                is IntentAction.Sms      -> contactResolver.resolvePhoneNumber(intent.contact)
+                else -> null
+            }
+        }
+        history = (listOf(HistoryEntry(intent, phone, simulated, message)) + history).take(5)
+    }
 
     LaunchedEffect(Unit) {
         if (!WhisperEngine.isLoaded) {
@@ -178,7 +191,6 @@ fun PushToTalkScreen() {
                     onClick = {
                         scope.launch {
                             busy = true
-                            resultText = ""
                             val sampleName = contactNames.firstOrNull() ?: "Pepe"
                             val battery = listOf(
                                 IntentAction.Call(sampleName),
@@ -186,13 +198,12 @@ fun PushToTalkScreen() {
                                 IntentAction.Sms(sampleName, "hola, esto es una prueba"),
                                 IntentAction.Alarm(hour = 8, minute = 30),
                             )
-                            val results = mutableListOf<String>()
+                            transcript = "(probar todo)"
                             battery.forEachIndexed { i, act ->
                                 status = "Probando ${i + 1}/${battery.size}…"
-                                results += executor.execute(act, simulate = true)
+                                val msg = executor.execute(act, simulate = true)
+                                record(act, simulated = true, message = msg)
                             }
-                            transcript = "(probar todo)"
-                            resultText = results.joinToString("\n\n")
                             status = "Listo"
                             busy = false
                         }
@@ -255,7 +266,8 @@ fun PushToTalkScreen() {
                                                     transcript = text.trim().ifEmpty { "(silencio)" }
                                                     val intent = router.route(transcript)
                                                     status = if (simulate) "Simulando…" else "Ejecutando…"
-                                                    resultText = executor.execute(intent, simulate)
+                                                    val msg = executor.execute(intent, simulate)
+                                                    record(intent, simulated = simulate, message = msg)
                                                     status = "Listo"
                                                     busy = false
                                                 }
@@ -285,17 +297,18 @@ fun PushToTalkScreen() {
 
             Text(
                 text = transcript,
-                modifier = Modifier.padding(top = 24.dp, start = 24.dp, end = 24.dp),
+                modifier = Modifier.padding(top = 24.dp, start = 24.dp, end = 24.dp, bottom = 16.dp),
                 fontSize = 28.sp,
                 color = MaterialTheme.colorScheme.onSurface,
             )
 
-            Text(
-                text = resultText,
-                modifier = Modifier.padding(top = 16.dp, start = 24.dp, end = 24.dp, bottom = 48.dp),
-                fontSize = 20.sp,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            history.forEach { entry ->
+                ActionCard(entry)
+            }
+
+            if (history.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(32.dp))
+            }
         }
     }
 }
