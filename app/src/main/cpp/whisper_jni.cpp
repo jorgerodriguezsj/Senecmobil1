@@ -34,7 +34,8 @@ Java_com_vozmayores_audio_WhisperEngine_nativeFreeModel(
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_vozmayores_audio_WhisperEngine_nativeTranscribe(
         JNIEnv *env, jobject /* thiz */,
-        jlong ctx_ptr, jshortArray j_samples, jstring j_lang) {
+        jlong ctx_ptr, jshortArray j_samples,
+        jstring j_lang, jstring j_prompt) {
     if (ctx_ptr == 0) return env->NewStringUTF("");
     auto *ctx = reinterpret_cast<struct whisper_context *>(ctx_ptr);
 
@@ -52,6 +53,10 @@ Java_com_vozmayores_audio_WhisperEngine_nativeTranscribe(
     env->ReleaseShortArrayElements(j_samples, raw, JNI_ABORT);
 
     const char *lang = env->GetStringUTFChars(j_lang, nullptr);
+    const char *prompt = nullptr;
+    if (j_prompt != nullptr) {
+        prompt = env->GetStringUTFChars(j_prompt, nullptr);
+    }
 
     struct whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.language         = lang;
@@ -64,9 +69,13 @@ Java_com_vozmayores_audio_WhisperEngine_nativeTranscribe(
     params.print_timestamps = false;
     params.print_special    = false;
     params.suppress_blank   = true;
+    if (prompt != nullptr && prompt[0] != '\0') {
+        params.initial_prompt = prompt;
+    }
 
     const int ret = whisper_full(ctx, params, pcmf32.data(), static_cast<int>(n));
-    if (lang != nullptr) env->ReleaseStringUTFChars(j_lang, lang);
+    if (lang   != nullptr) env->ReleaseStringUTFChars(j_lang,   lang);
+    if (prompt != nullptr) env->ReleaseStringUTFChars(j_prompt, prompt);
 
     if (ret != 0) {
         std::string err = "whisper_full ret=" + std::to_string(ret);

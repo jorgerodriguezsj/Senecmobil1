@@ -15,7 +15,12 @@ object WhisperEngine {
     external fun nativeSystemInfo(): String
     private external fun nativeLoadModel(path: String): Long
     private external fun nativeFreeModel(ctxPtr: Long)
-    private external fun nativeTranscribe(ctxPtr: Long, samples: ShortArray, language: String): String
+    private external fun nativeTranscribe(
+        ctxPtr: Long,
+        samples: ShortArray,
+        language: String,
+        initialPrompt: String,
+    ): String
 
     val isLoaded: Boolean get() = ctxPtr != 0L
 
@@ -39,10 +44,14 @@ object WhisperEngine {
         }
     }
 
-    fun transcribe(samples: ShortArray, language: String = "es"): String {
+    fun transcribe(
+        samples: ShortArray,
+        language: String = "es",
+        initialPrompt: String = "",
+    ): String {
         val p = ctxPtr
         if (p == 0L) return ""
         if (samples.isEmpty()) return ""
-        return nativeTranscribe(p, samples, language)
+        return nativeTranscribe(p, samples, language, initialPrompt)
     }
 }

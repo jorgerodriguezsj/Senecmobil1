@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -36,35 +37,54 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.vozmayores.actions.ContactResolver
 import com.vozmayores.audio.AudioRecorder
 import com.vozmayores.audio.ModelInstaller
 import com.vozmayores.audio.WhisperEngine
+import com.vozmayores.intent.IntentAction
+import com.vozmayores.intent.IntentRouter
+import com.vozmayores.intent.pretty
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "Voz.PushToTalkScreen"
+private const val MAX_CONTACTS_IN_PROMPT = 60
 
 @Composable
 fun PushToTalkScreen() {
     val context = LocalContext.current
     val recorder = remember { AudioRecorder() }
+    val router = remember { IntentRouter() }
+    val contactResolver = remember { ContactResolver(context) }
     val scope = rememberCoroutineScope()
 
-    var hasPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.RECORD_AUDIO,
-            ) == PackageManager.PERMISSION_GRANTED,
-        )
+    fun hasPerm(p: String) =
+        ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
+
+    var hasRecord by remember { mutableStateOf(hasPerm(Manifest.permission.RECORD_AUDIO)) }
+    var hasContacts by remember { mutableStateOf(hasPerm(Manifest.permission.READ_CONTACTS)) }
+
+    val permsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { results ->
+        hasRecord = results[Manifest.permission.RECORD_AUDIO] ?: hasRecord
+        hasContacts = results[Manifest.permission.READ_CONTACTS] ?: hasContacts
+        if (!hasRecord) Log.w(TAG, "RECORD_AUDIO denegado")
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        hasPermission = granted
-        if (!granted) Log.w(TAG, "RECORD_AUDIO denegado")
+    val contactNames by produceState(initialValue = emptyList<String>(), hasContacts) {
+        value = if (hasContacts) {
+            withContext(Dispatchers.IO) {
+                runCatching { contactResolver.getAllNames().take(MAX_CONTACTS_IN_PROMPT) }
+                    .getOrElse { emptyList() }
+            }
+        } else emptyList()
+    }
+
+    val initialPrompt = remember(contactNames) {
+        if (contactNames.isEmpty()) ""
+        else "Contactos: ${contactNames.joinToString(", ")}."
     }
 
     var modelReady by remember { mutableStateOf(WhisperEngine.isLoaded) }
@@ -72,31 +92,34 @@ fun PushToTalkScreen() {
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var transcript by remember { mutableStateOf("") }
+    var intentText by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         if (WhisperEngine.isLoaded) {
             modelReady = true
-            status = if (hasPermission) "Listo" else "Falta permiso de micrófono"
-            return@LaunchedEffect
-        }
-        if (!ModelInstaller.isAssetPresent(context)) {
-            status = "El APK no incluye el modelo Whisper"
-            return@LaunchedEffect
-        }
-        status = "Preparando modelo…"
-        val ok = withContext(Dispatchers.IO) {
-            runCatching {
-                val f = ModelInstaller.ensureInstalled(context)
-                WhisperEngine.loadModel(f.absolutePath)
-            }.getOrElse {
-                Log.e(TAG, "no pude preparar el modelo", it)
-                false
+        } else {
+            if (!ModelInstaller.isAssetPresent(context)) {
+                status = "El APK no incluye el modelo Whisper"
+                return@LaunchedEffect
+            }
+            status = "Preparando modelo…"
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val f = ModelInstaller.ensureInstalled(context)
+                    WhisperEngine.loadModel(f.absolutePath)
+                }.getOrElse {
+                    Log.e(TAG, "no pude preparar el modelo", it)
+                    false
+                }
+            }
+            modelReady = ok
+            if (!ok) {
+                status = "No pude cargar el modelo"
+                return@LaunchedEffect
             }
         }
-        modelReady = ok
         status = when {
-            !ok -> "No pude cargar el modelo"
-            !hasPermission -> "Falta permiso de micrófono"
+            !hasRecord -> "Toca el botón para dar permiso de micrófono"
             else -> "Listo"
         }
     }
@@ -118,23 +141,24 @@ fun PushToTalkScreen() {
                     .background(
                         when {
                             pressed -> Color(0xFFB71C1C)
-                            !hasPermission || !modelReady -> Color(0xFF9E9E9E)
+                            !modelReady -> Color(0xFF9E9E9E)
                             else -> Color(0xFFE53935)
                         },
                     )
-                    .pointerInput(hasPermission, modelReady, busy) {
+                    .pointerInput(hasRecord, hasContacts, modelReady, busy, initialPrompt) {
                         detectTapGestures(
                             onPress = {
                                 when {
-                                    !hasPermission -> {
-                                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    !hasRecord || !hasContacts -> {
+                                        permsLauncher.launch(
+                                            arrayOf(
+                                                Manifest.permission.RECORD_AUDIO,
+                                                Manifest.permission.READ_CONTACTS,
+                                            ),
+                                        )
                                     }
-                                    !modelReady -> {
-                                        // El estado ya explica por qué; no hacemos nada al pulsar.
-                                    }
-                                    busy -> {
-                                        // Transcripción en curso; ignoramos nuevas pulsaciones.
-                                    }
+                                    !modelReady -> Unit
+                                    busy -> Unit
                                     else -> {
                                         Log.d(TAG, "PTT down")
                                         val ok = recorder.start()
@@ -157,11 +181,35 @@ fun PushToTalkScreen() {
                                                         busy = false
                                                         return@launch
                                                     }
-                                                    status = "Transcribiendo… (${samples.size / AudioRecorder.SAMPLE_RATE_HZ}s)"
+                                                    val secs = samples.size / AudioRecorder.SAMPLE_RATE_HZ
+                                                    status = "Transcribiendo… (${secs}s)"
                                                     val text = withContext(Dispatchers.IO) {
-                                                        WhisperEngine.transcribe(samples)
+                                                        WhisperEngine.transcribe(
+                                                            samples = samples,
+                                                            language = "es",
+                                                            initialPrompt = initialPrompt,
+                                                        )
                                                     }
                                                     transcript = text.trim().ifEmpty { "(silencio)" }
+                                                    val intent = router.route(transcript)
+                                                    val resolvedPhone = when (intent) {
+                                                        is IntentAction.Call     -> contactResolver.resolvePhoneNumber(intent.contact)
+                                                        is IntentAction.WhatsApp -> contactResolver.resolvePhoneNumber(intent.contact)
+                                                        is IntentAction.Sms      -> contactResolver.resolvePhoneNumber(intent.contact)
+                                                        else -> null
+                                                    }
+                                                    intentText = buildString {
+                                                        append(intent.pretty())
+                                                        if (resolvedPhone != null) {
+                                                            append("\nTeléfono: $resolvedPhone")
+                                                        } else if (
+                                                            intent is IntentAction.Call ||
+                                                            intent is IntentAction.WhatsApp ||
+                                                            intent is IntentAction.Sms
+                                                        ) {
+                                                            append("\nSin contacto que case")
+                                                        }
+                                                    }
                                                     status = "Listo"
                                                     busy = false
                                                 }
@@ -191,9 +239,16 @@ fun PushToTalkScreen() {
 
             Text(
                 text = transcript,
-                modifier = Modifier.padding(top = 24.dp, start = 24.dp, end = 24.dp, bottom = 48.dp),
+                modifier = Modifier.padding(top = 24.dp, start = 24.dp, end = 24.dp),
                 fontSize = 28.sp,
                 color = MaterialTheme.colorScheme.onSurface,
+            )
+
+            Text(
+                text = intentText,
+                modifier = Modifier.padding(top = 16.dp, start = 24.dp, end = 24.dp, bottom = 48.dp),
+                fontSize = 20.sp,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
     }
