@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,9 +44,10 @@ fun ActionCard(entry: HistoryEntry) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .shadow(elevation = 6.dp, shape = RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(bg)
-            .padding(16.dp),
+            .padding(18.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
