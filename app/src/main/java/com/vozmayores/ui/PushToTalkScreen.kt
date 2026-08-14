@@ -10,30 +10,19 @@ import android.os.VibratorManager
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -54,10 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -132,9 +118,6 @@ fun PushToTalkScreen() {
     }
 
     val initialPrompt = remember(contactNames) {
-        // Sesgo el decoder de Whisper hacia el vocabulario tipico de
-        // este asistente: verbos habituales + nombres de contacto.
-        // "Llamar" primero para pelear con el yeismo (llamar vs yamar).
         val verbs = "Llamar. Mandar. Escribir un WhatsApp. WhatsApp. Mandar un SMS. " +
             "Poner una alarma. Programar una alarma."
         val contactsPart = if (contactNames.isEmpty()) ""
@@ -193,10 +176,8 @@ fun PushToTalkScreen() {
         } else {
             modelReady = true
         }
-        status = if (hasRecord) "Listo" else "Toca el botón para dar permisos"
+        status = if (hasRecord) "Listo" else "Toca abajo para dar permisos"
 
-        // Carga del LLM en segundo plano. El PTT ya funciona con
-        // matcher-only mientras esto termina.
         if (!LlmEngine.isLoaded && ModelInstaller.isLlmAssetPresent(context)) {
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
@@ -211,154 +192,192 @@ fun PushToTalkScreen() {
         }
     }
 
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.94f else 1f,
-        animationSpec = tween(120),
-        label = "ptt-scale",
-    )
-
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .padding(horizontal = 12.dp, vertical = 16.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Header()
+            RetroDevice(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(),
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    DeviceTopStrip(modifier = Modifier.height(46.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-            SettingsRow(
-                simulate = simulate,
-                onSimulateChange = { simulate = it },
-                enabled = !busy,
-                onProbeClick = {
-                    scope.launch {
-                        busy = true
-                        val sampleName = contactNames.firstOrNull() ?: "Pepe"
-                        val battery = listOf(
-                            IntentAction.Call(sampleName),
-                            IntentAction.WhatsApp(sampleName, "hola, esto es una prueba"),
-                            IntentAction.Sms(sampleName, "hola, esto es una prueba"),
-                            IntentAction.Alarm(hour = 8, minute = 30),
-                        )
-                        transcript = "(probar todo)"
-                        battery.forEachIndexed { i, act ->
-                            status = "Probando ${i + 1}/${battery.size}…"
-                            val msg = executor.execute(act, simulate = true)
-                            record(act, simulated = true, message = msg)
-                        }
-                        status = "Listo"
-                        busy = false
-                    }
-                },
-                probeEnabled = !busy && modelReady,
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            PttButton(
-                pressed = pressed,
-                busy = busy,
-                enabled = modelReady && hasRecord,
-                scale = scale,
-                level = level,
-                onPress = {
-                    when {
-                        !hasRecord -> permsLauncher.launch(REQUESTED_PERMISSIONS)
-                        !modelReady -> Unit
-                        busy -> Unit
-                        else -> {
-                            Log.d(TAG, "PTT down")
-                            val ok = recorder.start()
-                            if (!ok) {
-                                status = "No pude arrancar la grabación"
-                            } else {
-                                pressed = true
-                                haptics.buzz(30)
-                                status = "Escuchando…"
-                                try {
-                                    tryAwaitRelease()
-                                } finally {
-                                    pressed = false
-                                    haptics.buzz(60)
-                                    Log.d(TAG, "PTT up")
+                    InnerScreen(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        ScreenContent(
+                            simulate = simulate,
+                            onSimulateChange = { simulate = it },
+                            busy = busy,
+                            probeEnabled = !busy && modelReady,
+                            onProbeClick = {
+                                scope.launch {
                                     busy = true
-                                    status = "Procesando…"
-                                    scope.launch {
-                                        val samples = recorder.stop()
-                                        if (samples.isEmpty()) {
-                                            status = "No se capturó audio"
-                                            busy = false
-                                            return@launch
+                                    val sampleName = contactNames.firstOrNull() ?: "Pepe"
+                                    val battery = listOf(
+                                        IntentAction.Call(sampleName),
+                                        IntentAction.WhatsApp(sampleName, "hola, esto es una prueba"),
+                                        IntentAction.Sms(sampleName, "hola, esto es una prueba"),
+                                        IntentAction.Alarm(hour = 8, minute = 30),
+                                    )
+                                    transcript = "(probar todo)"
+                                    battery.forEachIndexed { i, act ->
+                                        status = "Probando ${i + 1}/${battery.size}…"
+                                        val msg = executor.execute(act, simulate = true)
+                                        record(act, simulated = true, message = msg)
+                                    }
+                                    status = "Listo"
+                                    busy = false
+                                }
+                            },
+                            status = status,
+                            transcript = transcript,
+                            history = history,
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    PttWavePanel(
+                        pressed = pressed,
+                        busy = busy,
+                        enabled = modelReady && hasRecord,
+                        level = level,
+                        onPress = {
+                            when {
+                                !hasRecord -> permsLauncher.launch(REQUESTED_PERMISSIONS)
+                                !modelReady -> Unit
+                                busy -> Unit
+                                else -> {
+                                    Log.d(TAG, "PTT down")
+                                    val ok = recorder.start()
+                                    if (!ok) {
+                                        status = "No pude arrancar la grabación"
+                                    } else {
+                                        pressed = true
+                                        haptics.buzz(30)
+                                        status = "Escuchando…"
+                                        try {
+                                            tryAwaitRelease()
+                                        } finally {
+                                            pressed = false
+                                            haptics.buzz(60)
+                                            Log.d(TAG, "PTT up")
+                                            busy = true
+                                            status = "Procesando…"
+                                            scope.launch {
+                                                val samples = recorder.stop()
+                                                if (samples.isEmpty()) {
+                                                    status = "No se capturó audio"
+                                                    busy = false
+                                                    return@launch
+                                                }
+                                                val secs = samples.size / AudioRecorder.SAMPLE_RATE_HZ
+                                                status = "Transcribiendo… (${secs}s)"
+                                                val text = withContext(Dispatchers.IO) {
+                                                    WhisperEngine.transcribe(
+                                                        samples = samples,
+                                                        language = "es",
+                                                        initialPrompt = initialPrompt,
+                                                    )
+                                                }
+                                                transcript = text.trim().ifEmpty { "(silencio)" }
+                                                status = if (llmReady) "Interpretando…" else "Buscando comando…"
+                                                val routed = withContext(Dispatchers.IO) {
+                                                    router.route(transcript, contactNames)
+                                                }
+                                                status = if (simulate) "Simulando…" else "Ejecutando…"
+                                                val msg = executor.execute(routed.action, simulate)
+                                                record(routed.action, simulate, msg, routed.source, routed.llmRaw)
+                                                status = "Listo"
+                                                busy = false
+                                            }
                                         }
-                                        val secs = samples.size / AudioRecorder.SAMPLE_RATE_HZ
-                                        status = "Transcribiendo… (${secs}s)"
-                                        val text = withContext(Dispatchers.IO) {
-                                            WhisperEngine.transcribe(
-                                                samples = samples,
-                                                language = "es",
-                                                initialPrompt = initialPrompt,
-                                            )
-                                        }
-                                        transcript = text.trim().ifEmpty { "(silencio)" }
-                                        status = if (llmReady) "Interpretando…" else "Buscando comando…"
-                                        val routed = withContext(Dispatchers.IO) {
-                                            router.route(transcript, contactNames)
-                                        }
-                                        status = if (simulate) "Simulando…" else "Ejecutando…"
-                                        val msg = executor.execute(routed.action, simulate)
-                                        record(routed.action, simulate, msg, routed.source, routed.llmRaw)
-                                        status = "Listo"
-                                        busy = false
                                     }
                                 }
                             }
-                        }
-                    }
-                },
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            StatusPill(text = status)
-
-            if (transcript.isNotBlank()) {
-                Text(
-                    text = "«$transcript»",
-                    modifier = Modifier.padding(top = 20.dp, start = 24.dp, end = 24.dp, bottom = 8.dp),
-                    fontSize = 24.sp,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    textAlign = TextAlign.Center,
-                )
+                        },
+                        modifier = Modifier.height(150.dp),
+                    )
+                }
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            history.forEach { entry -> ActionCard(entry) }
-
-            Spacer(modifier = Modifier.height(48.dp))
         }
     }
 }
 
 @Composable
-private fun Header() {
+private fun ScreenContent(
+    simulate: Boolean,
+    onSimulateChange: (Boolean) -> Unit,
+    busy: Boolean,
+    probeEnabled: Boolean,
+    onProbeClick: () -> Unit,
+    status: String,
+    transcript: String,
+    history: List<HistoryEntry>,
+) {
     Column(
-        modifier = Modifier.padding(top = 24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text = "Voz",
-            fontSize = 34.sp,
+            fontSize = 26.sp,
             fontWeight = FontWeight.Black,
-            color = MaterialTheme.colorScheme.primary,
+            color = VozColors.KnobRedDark,
         )
         Text(
-            text = "Habla y ya",
-            fontSize = 14.sp,
+            text = "Mantén pulsado el botón rojo y habla",
+            fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 2.dp, bottom = 24.dp),
+            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
         )
+
+        SettingsRow(
+            simulate = simulate,
+            onSimulateChange = onSimulateChange,
+            enabled = !busy,
+            onProbeClick = onProbeClick,
+            probeEnabled = probeEnabled,
+        )
+
+        if (status.isNotBlank()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = status,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (transcript.isNotBlank()) {
+            Text(
+                text = "«$transcript»",
+                modifier = Modifier.padding(top = 14.dp, start = 8.dp, end = 8.dp),
+                fontSize = 18.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        history.forEach { entry -> ActionCard(entry) }
+
+        Spacer(modifier = Modifier.height(20.dp))
     }
 }
 
@@ -370,37 +389,29 @@ private fun SettingsRow(
     onProbeClick: () -> Unit,
     probeEnabled: Boolean,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-    ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Modo simulación",
-                    fontSize = 17.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     text = if (simulate) "Anuncia sin ejecutar" else "Ejecuta las acciones",
-                    fontSize = 13.sp,
+                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(
-                checked = simulate,
-                onCheckedChange = onSimulateChange,
-                enabled = enabled,
-            )
+            Switch(checked = simulate, onCheckedChange = onSimulateChange, enabled = enabled)
         }
 
         OutlinedButton(
@@ -408,107 +419,10 @@ private fun SettingsRow(
             onClick = onProbeClick,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp),
-            shape = RoundedCornerShape(14.dp),
+                .padding(top = 6.dp),
+            shape = RoundedCornerShape(12.dp),
         ) {
-            Text("Probar todo", fontSize = 15.sp)
-        }
-    }
-}
-
-@Composable
-private fun PttButton(
-    pressed: Boolean,
-    busy: Boolean,
-    enabled: Boolean,
-    scale: Float,
-    level: Float,
-    onPress: suspend androidx.compose.foundation.gestures.PressGestureScope.(androidx.compose.ui.geometry.Offset) -> Unit,
-) {
-    // Color según estado, con transición suave.
-    val targetBg = when {
-        !enabled -> Color(0xFF9E9E9E)          // gris: sin permiso o modelo no listo
-        pressed -> Color(0xFF8E0E0E)            // carmesí: escuchando
-        busy -> Color(0xFFE68900)               // ámbar: procesando/ejecutando
-        else -> MaterialTheme.colorScheme.primary
-    }
-    val bg by animateColorAsState(targetBg, tween(280), label = "ptt-bg")
-
-    Box(
-        modifier = Modifier.size(320.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        // Pulse ring que sale del botón mientras se graba. Se
-        // modula con `level` para que suba con el volumen del micro.
-        if (pressed) {
-            val transition = rememberInfiniteTransition(label = "pulse")
-            val pulseScale by transition.animateFloat(
-                initialValue = 1f,
-                targetValue = 1.28f + level * 0.15f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1100, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Restart,
-                ),
-                label = "pulse-scale",
-            )
-            val pulseAlpha by transition.animateFloat(
-                initialValue = 0.42f,
-                targetValue = 0f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1100, easing = LinearEasing),
-                    repeatMode = RepeatMode.Restart,
-                ),
-                label = "pulse-alpha",
-            )
-            Box(
-                modifier = Modifier
-                    .size(280.dp)
-                    .graphicsLayer {
-                        scaleX = pulseScale
-                        scaleY = pulseScale
-                        alpha = pulseAlpha
-                    }
-                    .clip(CircleShape)
-                    .background(bg),
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                }
-                .size(280.dp)
-                .shadow(elevation = 14.dp, shape = CircleShape)
-                .clip(CircleShape)
-                .background(bg)
-                .pointerInput(enabled) {
-                    detectTapGestures(onPress = onPress)
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = when {
-                        pressed -> "🎙️"
-                        busy -> "⏳"
-                        else -> "🎤"
-                    },
-                    fontSize = 84.sp,
-                )
-                Text(
-                    text = when {
-                        pressed -> "ESCUCHO"
-                        busy -> "…"
-                        else -> "HABLA"
-                    },
-                    color = Color.White,
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
+            Text("Probar todo", fontSize = 13.sp)
         }
     }
 }
@@ -528,19 +442,4 @@ private class HapticFeedback(context: Context) {
             v.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
         }
     }
-}
-
-@Composable
-private fun StatusPill(text: String) {
-    if (text.isBlank()) return
-    Text(
-        text = text,
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        fontSize = 15.sp,
-        fontWeight = FontWeight.Medium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }

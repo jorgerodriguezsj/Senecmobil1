@@ -9,35 +9,57 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// Paleta cálida, alto contraste, pensada para vista cansada.
+// Paleta inspirada en el mockup: dispositivo de juguete retro
+// con cuerpo crema, pantalla clara y panel rojo abajo.
+internal object VozColors {
+    // Escritorio (fondo detrás del "dispositivo")
+    val Desk = Color(0xFFB6D4CE)
+
+    // Cuerpo de la carcasa
+    val Body = Color(0xFFE9DBC6)
+    val BodyStroke = Color(0xFFCFB99A)
+    val BodyShadow = Color(0xFFA88E6C)
+
+    // Cámara y decoración
+    val CameraGlass = Color(0xFF1A1512)
+    val KnobRed = Color(0xFFE4877E)
+    val KnobRedDark = Color(0xFF9E4A44)
+
+    // Pantalla interna
+    val ScreenBezel = Color(0xFF1D1A17)
+    val ScreenBg = Color(0xFFF3E7D6)
+    val ScreenInk = Color(0xFF3A2E22)
+
+    // Panel PTT
+    val PttPanel = Color(0xFF9A2020)
+    val PttPanelPressed = Color(0xFF6F1414)
+    val PttPanelBusy = Color(0xFFC17A1E)
+    val PttPanelDisabled = Color(0xFF7D6E6E)
+    val Waveform = Color(0xFFF3D8CC)
+}
+
 private val LightColors = lightColorScheme(
-    primary = Color(0xFFC62828),
+    primary = VozColors.PttPanel,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFCDD2),
-    onPrimaryContainer = Color(0xFF370809),
-
-    secondary = Color(0xFF00695C),
+    secondary = VozColors.KnobRedDark,
     onSecondary = Color.White,
-
-    background = Color(0xFFFFF8F3),
-    onBackground = Color(0xFF3D2C1F),
-
-    surface = Color(0xFFFFFDF9),
-    onSurface = Color(0xFF3D2C1F),
-    surfaceVariant = Color(0xFFF1E6D9),
-    onSurfaceVariant = Color(0xFF6D5F52),
-
-    outline = Color(0xFFCFC0B1),
+    background = VozColors.Desk,
+    onBackground = VozColors.ScreenInk,
+    surface = VozColors.ScreenBg,
+    onSurface = VozColors.ScreenInk,
+    surfaceVariant = VozColors.Body,
+    onSurfaceVariant = Color(0xFF6A4E32),
+    outline = VozColors.BodyStroke,
 )
 
 private val VozTypography = Typography(
-    displayLarge = TextStyle(fontSize = 56.sp, fontWeight = FontWeight.Black),
-    displayMedium = TextStyle(fontSize = 40.sp, fontWeight = FontWeight.Bold),
-    titleLarge = TextStyle(fontSize = 28.sp, fontWeight = FontWeight.Bold),
-    titleMedium = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.SemiBold),
-    bodyLarge = TextStyle(fontSize = 20.sp),
-    bodyMedium = TextStyle(fontSize = 16.sp),
-    labelMedium = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Bold),
+    displayLarge = TextStyle(fontSize = 40.sp, fontWeight = FontWeight.Black),
+    displayMedium = TextStyle(fontSize = 28.sp, fontWeight = FontWeight.Bold),
+    titleLarge = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold),
+    titleMedium = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.SemiBold),
+    bodyLarge = TextStyle(fontSize = 18.sp),
+    bodyMedium = TextStyle(fontSize = 15.sp),
+    labelMedium = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold),
     labelSmall = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.Bold),
 )
 
