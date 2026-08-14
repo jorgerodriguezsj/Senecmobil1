@@ -59,6 +59,9 @@ import com.vozmayores.audio.ModelInstaller
 import com.vozmayores.audio.WhisperEngine
 import com.vozmayores.intent.IntentAction
 import com.vozmayores.intent.IntentRouter
+import com.vozmayores.intent.LocalMatcher
+import com.vozmayores.llm.AgentLoop
+import com.vozmayores.llm.LlmEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -77,7 +80,7 @@ private val REQUESTED_PERMISSIONS = arrayOf(
 fun PushToTalkScreen() {
     val context = LocalContext.current
     val recorder = remember { AudioRecorder() }
-    val router = remember { IntentRouter() }
+    val router = remember { IntentRouter(matcher = LocalMatcher(), agent = AgentLoop()) }
     val contactResolver = remember { ContactResolver(context) }
     val tts = remember { Tts(context) }
     val executor = remember { ToolExecutor(context, tts, contactResolver) }
@@ -118,6 +121,7 @@ fun PushToTalkScreen() {
     }
 
     var modelReady by remember { mutableStateOf(WhisperEngine.isLoaded) }
+    var llmReady by remember { mutableStateOf(LlmEngine.isLoaded) }
     var pressed by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -139,29 +143,44 @@ fun PushToTalkScreen() {
 
     LaunchedEffect(Unit) {
         if (!WhisperEngine.isLoaded) {
-            if (!ModelInstaller.isAssetPresent(context)) {
+            if (!ModelInstaller.isWhisperAssetPresent(context)) {
                 status = "El APK no incluye el modelo Whisper"
                 return@LaunchedEffect
             }
-            status = "Preparando modelo…"
+            status = "Preparando modelo de voz…"
             val ok = withContext(Dispatchers.IO) {
                 runCatching {
-                    val f = ModelInstaller.ensureInstalled(context)
+                    val f = ModelInstaller.ensureWhisperInstalled(context)
                     WhisperEngine.loadModel(f.absolutePath)
                 }.getOrElse {
-                    Log.e(TAG, "no pude preparar el modelo", it)
+                    Log.e(TAG, "no pude preparar Whisper", it)
                     false
                 }
             }
             modelReady = ok
             if (!ok) {
-                status = "No pude cargar el modelo"
+                status = "No pude cargar el modelo de voz"
                 return@LaunchedEffect
             }
         } else {
             modelReady = true
         }
         status = if (hasRecord) "Listo" else "Toca el botón para dar permisos"
+
+        // Carga del LLM en segundo plano. El PTT ya funciona con
+        // matcher-only mientras esto termina.
+        if (!LlmEngine.isLoaded && ModelInstaller.isLlmAssetPresent(context)) {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val f = ModelInstaller.ensureLlmInstalled(context)
+                    LlmEngine.loadModel(f.absolutePath)
+                }.getOrElse {
+                    Log.e(TAG, "no pude preparar LLM", it)
+                    false
+                }
+            }
+            llmReady = ok
+        }
     }
 
     val scale by animateFloatAsState(
@@ -250,7 +269,10 @@ fun PushToTalkScreen() {
                                             )
                                         }
                                         transcript = text.trim().ifEmpty { "(silencio)" }
-                                        val intent = router.route(transcript)
+                                        status = if (llmReady) "Interpretando…" else "Buscando comando…"
+                                        val intent = withContext(Dispatchers.IO) {
+                                            router.route(transcript, contactNames)
+                                        }
                                         status = if (simulate) "Simulando…" else "Ejecutando…"
                                         val msg = executor.execute(intent, simulate)
                                         record(intent, simulated = simulate, message = msg)
