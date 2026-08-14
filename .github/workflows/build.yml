@@ -71,8 +71,27 @@ jobs:
         if: steps.cache-llm.outputs.cache-hit != 'true'
         run: |
           mkdir -p app/src/main/assets/models
-          curl -sSL --fail --retry 3 -o app/src/main/assets/models/qwen3-0.6b-instruct-q4_k_m.gguf \
+          out=app/src/main/assets/models/qwen3-0.6b-instruct-q4_k_m.gguf
+          # Los repos GGUF de Qwen3 los publican varios mirrors. Probamos
+          # en orden y nos quedamos con el primero que responda 200.
+          urls=(
+            "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
             "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
+            "https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/main/Qwen_Qwen3-0.6B-Q4_K_M.gguf"
+            "https://huggingface.co/bartowski/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
+            "https://huggingface.co/lmstudio-community/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
+          )
+          for u in "${urls[@]}"; do
+            echo "Probando $u"
+            code=$(curl -sIL -o /dev/null -w "%{http_code}" "$u" || true)
+            echo "  → HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "Descargando de $u"
+              curl -sSL --fail --retry 3 -o "$out" "$u"
+              break
+            fi
+          done
+          test -s "$out" || { echo "❌ Ningun mirror de Qwen3 respondio 200"; exit 1; }
 
       - name: Verify models
         run: |
