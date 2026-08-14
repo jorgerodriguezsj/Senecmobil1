@@ -7,7 +7,7 @@ import java.io.File
 private const val TAG = "Voz.ModelInstaller"
 
 object ModelInstaller {
-    const val WHISPER_MODEL_FILE = "ggml-base-q5_1.bin"
+    const val WHISPER_MODEL_FILE = "ggml-small-q5_1.bin"
     const val LLM_MODEL_FILE = "qwen3-0.6b-instruct-q4_k_m.gguf"
 
     private const val WHISPER_ASSET = "models/$WHISPER_MODEL_FILE"

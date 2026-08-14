@@ -50,15 +50,15 @@ jobs:
         id: cache-whisper
         uses: actions/cache@v4
         with:
-          path: app/src/main/assets/models/ggml-base-q5_1.bin
-          key: whisper-ggml-base-q5_1-v1
+          path: app/src/main/assets/models/ggml-small-q5_1.bin
+          key: whisper-ggml-small-q5_1-v1
 
       - name: Download Whisper model
         if: steps.cache-whisper.outputs.cache-hit != 'true'
         run: |
           mkdir -p app/src/main/assets/models
-          curl -sSL --fail --retry 3 -o app/src/main/assets/models/ggml-base-q5_1.bin \
-            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin"
+          curl -sSL --fail --retry 3 -o app/src/main/assets/models/ggml-small-q5_1.bin \
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin"
 
       - name: Cache Qwen3 LLM model
         id: cache-llm
@@ -95,7 +95,7 @@ jobs:
 
       - name: Verify models
         run: |
-          test -s app/src/main/assets/models/ggml-base-q5_1.bin
+          test -s app/src/main/assets/models/ggml-small-q5_1.bin
           test -s app/src/main/assets/models/qwen3-0.6b-instruct-q4_k_m.gguf
           ls -la app/src/main/assets/models/
           sha256sum app/src/main/assets/models/*.bin app/src/main/assets/models/*.gguf

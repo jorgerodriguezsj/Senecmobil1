@@ -117,8 +117,14 @@ fun PushToTalkScreen() {
     }
 
     val initialPrompt = remember(contactNames) {
-        if (contactNames.isEmpty()) ""
-        else "Contactos: ${contactNames.joinToString(", ")}."
+        // Sesgo el decoder de Whisper hacia el vocabulario tipico de
+        // este asistente: verbos habituales + nombres de contacto.
+        // "Llamar" primero para pelear con el yeismo (llamar vs yamar).
+        val verbs = "Llamar. Mandar. Escribir un WhatsApp. WhatsApp. Mandar un SMS. " +
+            "Poner una alarma. Programar una alarma."
+        val contactsPart = if (contactNames.isEmpty()) ""
+        else " Contactos: ${contactNames.joinToString(", ")}."
+        "$verbs$contactsPart"
     }
 
     var modelReady by remember { mutableStateOf(WhisperEngine.isLoaded) }
