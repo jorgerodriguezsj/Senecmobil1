@@ -10,14 +10,20 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -44,6 +50,7 @@ import com.vozmayores.actions.Tts
 import com.vozmayores.audio.AudioRecorder
 import com.vozmayores.audio.ModelInstaller
 import com.vozmayores.audio.WhisperEngine
+import com.vozmayores.intent.IntentAction
 import com.vozmayores.intent.IntentRouter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -111,6 +118,7 @@ fun PushToTalkScreen() {
     var status by remember { mutableStateOf("") }
     var transcript by remember { mutableStateOf("") }
     var resultText by remember { mutableStateOf("") }
+    var simulate by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         if (!WhisperEngine.isLoaded) {
@@ -150,9 +158,55 @@ fun PushToTalkScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top,
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 24.dp, end = 24.dp, top = 24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Modo simulación",
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(end = 12.dp),
+                )
+                Switch(
+                    checked = simulate,
+                    onCheckedChange = { simulate = it },
+                    enabled = !busy,
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                OutlinedButton(
+                    enabled = !busy && modelReady,
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            resultText = ""
+                            val sampleName = contactNames.firstOrNull() ?: "Pepe"
+                            val battery = listOf(
+                                IntentAction.Call(sampleName),
+                                IntentAction.WhatsApp(sampleName, "hola, esto es una prueba"),
+                                IntentAction.Sms(sampleName, "hola, esto es una prueba"),
+                                IntentAction.Alarm(hour = 8, minute = 30),
+                            )
+                            val results = mutableListOf<String>()
+                            battery.forEachIndexed { i, act ->
+                                status = "Probando ${i + 1}/${battery.size}…"
+                                results += executor.execute(act, simulate = true)
+                            }
+                            transcript = "(probar todo)"
+                            resultText = results.joinToString("\n\n")
+                            status = "Listo"
+                            busy = false
+                        }
+                    },
+                ) {
+                    Text("Probar todo")
+                }
+            }
+
             Box(
                 modifier = Modifier
-                    .padding(top = 48.dp)
+                    .padding(top = 24.dp)
                     .size(280.dp)
                     .clip(CircleShape)
                     .background(
@@ -202,8 +256,8 @@ fun PushToTalkScreen() {
                                                     }
                                                     transcript = text.trim().ifEmpty { "(silencio)" }
                                                     val intent = router.route(transcript)
-                                                    status = "Ejecutando…"
-                                                    resultText = executor.execute(intent)
+                                                    status = if (simulate) "Simulando…" else "Ejecutando…"
+                                                    resultText = executor.execute(intent, simulate)
                                                     status = "Listo"
                                                     busy = false
                                                 }
