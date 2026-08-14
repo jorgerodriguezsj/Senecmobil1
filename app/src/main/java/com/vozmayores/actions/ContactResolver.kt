@@ -34,15 +34,16 @@ class ContactResolver(private val context: Context) {
     }
 
     /**
-     * Busca el primer número que casa con `query`. Estrategia:
-     *  1) exacto (case-insensitive)
+     * Busca el primer número que casa con `query`. Estrategia
+     * (case + accent insensitive):
+     *  1) exacto
      *  2) contiene la query
      *  3) alguna palabra de la query aparece en el nombre
-     *     (para tolerar nombre parcial: "Pepe" → "Pepe García")
+     *     ("Pepe" → "Pepe García")
      * Devuelve null si no encuentra nada.
      */
     fun resolvePhoneNumber(query: String): String? {
-        val q = query.trim().lowercase()
+        val q = fold(query)
         if (q.isEmpty()) return null
 
         val cursor = context.contentResolver.query(
@@ -66,7 +67,8 @@ class ContactResolver(private val context: Context) {
             val numCol = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
             if (nameCol < 0 || numCol < 0) return null
             while (it.moveToNext()) {
-                val name = it.getString(nameCol)?.lowercase() ?: continue
+                val rawName = it.getString(nameCol) ?: continue
+                val name = fold(rawName)
                 val num = it.getString(numCol) ?: continue
                 when {
                     name == q -> if (exact == null) exact = num
@@ -78,4 +80,7 @@ class ContactResolver(private val context: Context) {
         }
         return exact ?: contains ?: partial
     }
+
+    private fun fold(s: String): String = com.vozmayores.intent.LocalMatcher
+        .stripAccents(s.trim().lowercase())
 }
