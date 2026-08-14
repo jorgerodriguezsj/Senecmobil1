@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,12 +39,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.vozmayores.actions.ContactResolver
+import com.vozmayores.actions.ToolExecutor
+import com.vozmayores.actions.Tts
 import com.vozmayores.audio.AudioRecorder
 import com.vozmayores.audio.ModelInstaller
 import com.vozmayores.audio.WhisperEngine
-import com.vozmayores.intent.IntentAction
 import com.vozmayores.intent.IntentRouter
-import com.vozmayores.intent.pretty
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,25 +52,42 @@ import kotlinx.coroutines.withContext
 private const val TAG = "Voz.PushToTalkScreen"
 private const val MAX_CONTACTS_IN_PROMPT = 60
 
+private val REQUESTED_PERMISSIONS = arrayOf(
+    Manifest.permission.RECORD_AUDIO,
+    Manifest.permission.READ_CONTACTS,
+    Manifest.permission.CALL_PHONE,
+    Manifest.permission.SEND_SMS,
+)
+
 @Composable
 fun PushToTalkScreen() {
     val context = LocalContext.current
     val recorder = remember { AudioRecorder() }
     val router = remember { IntentRouter() }
     val contactResolver = remember { ContactResolver(context) }
+    val tts = remember { Tts(context) }
+    val executor = remember { ToolExecutor(context, tts, contactResolver) }
     val scope = rememberCoroutineScope()
 
-    fun hasPerm(p: String) =
+    DisposableEffect(tts) {
+        onDispose { tts.shutdown() }
+    }
+
+    fun granted(p: String) =
         ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
 
-    var hasRecord by remember { mutableStateOf(hasPerm(Manifest.permission.RECORD_AUDIO)) }
-    var hasContacts by remember { mutableStateOf(hasPerm(Manifest.permission.READ_CONTACTS)) }
+    var hasRecord by remember { mutableStateOf(granted(Manifest.permission.RECORD_AUDIO)) }
+    var hasContacts by remember { mutableStateOf(granted(Manifest.permission.READ_CONTACTS)) }
+    var hasCall by remember { mutableStateOf(granted(Manifest.permission.CALL_PHONE)) }
+    var hasSms by remember { mutableStateOf(granted(Manifest.permission.SEND_SMS)) }
 
     val permsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { results ->
         hasRecord = results[Manifest.permission.RECORD_AUDIO] ?: hasRecord
         hasContacts = results[Manifest.permission.READ_CONTACTS] ?: hasContacts
+        hasCall = results[Manifest.permission.CALL_PHONE] ?: hasCall
+        hasSms = results[Manifest.permission.SEND_SMS] ?: hasSms
         if (!hasRecord) Log.w(TAG, "RECORD_AUDIO denegado")
     }
 
@@ -92,12 +110,10 @@ fun PushToTalkScreen() {
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var transcript by remember { mutableStateOf("") }
-    var intentText by remember { mutableStateOf("") }
+    var resultText by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        if (WhisperEngine.isLoaded) {
-            modelReady = true
-        } else {
+        if (!WhisperEngine.isLoaded) {
             if (!ModelInstaller.isAssetPresent(context)) {
                 status = "El APK no incluye el modelo Whisper"
                 return@LaunchedEffect
@@ -117,12 +133,13 @@ fun PushToTalkScreen() {
                 status = "No pude cargar el modelo"
                 return@LaunchedEffect
             }
+        } else {
+            modelReady = true
         }
-        status = when {
-            !hasRecord -> "Toca el botón para dar permiso de micrófono"
-            else -> "Listo"
-        }
+        status = if (hasRecord) "Listo" else "Toca el botón para dar permisos"
     }
+
+    val allPermsOk = hasRecord && hasContacts && hasCall && hasSms
 
     Scaffold { padding ->
         Column(
@@ -145,18 +162,11 @@ fun PushToTalkScreen() {
                             else -> Color(0xFFE53935)
                         },
                     )
-                    .pointerInput(hasRecord, hasContacts, modelReady, busy, initialPrompt) {
+                    .pointerInput(allPermsOk, modelReady, busy, initialPrompt) {
                         detectTapGestures(
                             onPress = {
                                 when {
-                                    !hasRecord || !hasContacts -> {
-                                        permsLauncher.launch(
-                                            arrayOf(
-                                                Manifest.permission.RECORD_AUDIO,
-                                                Manifest.permission.READ_CONTACTS,
-                                            ),
-                                        )
-                                    }
+                                    !allPermsOk -> permsLauncher.launch(REQUESTED_PERMISSIONS)
                                     !modelReady -> Unit
                                     busy -> Unit
                                     else -> {
@@ -192,24 +202,8 @@ fun PushToTalkScreen() {
                                                     }
                                                     transcript = text.trim().ifEmpty { "(silencio)" }
                                                     val intent = router.route(transcript)
-                                                    val resolvedPhone = when (intent) {
-                                                        is IntentAction.Call     -> contactResolver.resolvePhoneNumber(intent.contact)
-                                                        is IntentAction.WhatsApp -> contactResolver.resolvePhoneNumber(intent.contact)
-                                                        is IntentAction.Sms      -> contactResolver.resolvePhoneNumber(intent.contact)
-                                                        else -> null
-                                                    }
-                                                    intentText = buildString {
-                                                        append(intent.pretty())
-                                                        if (resolvedPhone != null) {
-                                                            append("\nTeléfono: $resolvedPhone")
-                                                        } else if (
-                                                            intent is IntentAction.Call ||
-                                                            intent is IntentAction.WhatsApp ||
-                                                            intent is IntentAction.Sms
-                                                        ) {
-                                                            append("\nSin contacto que case")
-                                                        }
-                                                    }
+                                                    status = "Ejecutando…"
+                                                    resultText = executor.execute(intent)
                                                     status = "Listo"
                                                     busy = false
                                                 }
@@ -245,7 +239,7 @@ fun PushToTalkScreen() {
             )
 
             Text(
-                text = intentText,
+                text = resultText,
                 modifier = Modifier.padding(top = 16.dp, start = 24.dp, end = 24.dp, bottom = 48.dp),
                 fontSize = 20.sp,
                 color = MaterialTheme.colorScheme.primary,
