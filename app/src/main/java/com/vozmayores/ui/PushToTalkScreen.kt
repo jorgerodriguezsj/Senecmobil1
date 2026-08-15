@@ -147,17 +147,6 @@ fun PushToTalkScreen() {
     var history by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     var simulate by remember { mutableStateOf(true) }
 
-    fun fireIntent(action: IntentAction) {
-        scope.launch {
-            busy = true
-            status = if (simulate) "Simulando…" else "Ejecutando…"
-            val msg = executor.execute(action, simulate)
-            record(action, simulate, msg, IntentSource.LOCAL)
-            status = "Listo"
-            busy = false
-        }
-    }
-
     suspend fun record(
         intent: IntentAction,
         simulated: Boolean,
@@ -174,6 +163,17 @@ fun PushToTalkScreen() {
             }
         }
         history = (listOf(HistoryEntry(intent, phone, simulated, message, source, llmRaw)) + history).take(5)
+    }
+
+    fun fireIntent(action: IntentAction) {
+        scope.launch {
+            busy = true
+            status = if (simulate) "Simulando…" else "Ejecutando…"
+            val msg = executor.execute(action, simulate)
+            record(action, simulate, msg, IntentSource.LOCAL)
+            status = "Listo"
+            busy = false
+        }
     }
 
     LaunchedEffect(Unit) {
