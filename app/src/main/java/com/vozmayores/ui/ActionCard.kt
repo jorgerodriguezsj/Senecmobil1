@@ -40,6 +40,8 @@ fun ActionCard(entry: HistoryEntry) {
         is IntentAction.Sms      -> Color(0xFF1565C0) to "✉️  SMS"
         is IntentAction.Alarm    -> Color(0xFF283593) to "⏰  ALARMA"
         is IntentAction.Respond  -> Color(0xFF455A64) to "🗣  RESPUESTA"
+        is IntentAction.Open     -> Color(0xFF5D4037) to "🧭  NAVEGAR"
+        IntentAction.Back        -> Color(0xFF5D4037) to "↩  VOLVER"
         IntentAction.Unknown     -> Color(0xFFC62828) to "❓  SIN ENTENDER"
     }
 
@@ -120,6 +122,24 @@ fun ActionCard(entry: HistoryEntry) {
                     text = a.text,
                     color = Color.White,
                     fontSize = 20.sp,
+                )
+            }
+
+            is IntentAction.Open -> {
+                Text(
+                    text = "${a.screen.emoji}  ${a.screen.title}",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            IntentAction.Back -> {
+                Text(
+                    text = "Inicio",
+                    color = Color.White,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
                 )
             }
 
