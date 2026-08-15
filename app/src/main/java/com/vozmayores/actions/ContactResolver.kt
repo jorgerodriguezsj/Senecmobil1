@@ -6,7 +6,49 @@ import android.util.Log
 
 private const val TAG = "Voz.ContactResolver"
 
+/**
+ * Un contacto con su primer número asociado. Si un contacto tiene
+ * varios números, solo aparece el primero — la app está pensada para
+ * un mando muy sencillo y no queremos filas duplicadas.
+ */
+data class ContactRow(val name: String, val phone: String)
+
 class ContactResolver(private val context: Context) {
+
+    /**
+     * Devuelve todos los contactos con al menos un número, alfabético,
+     * un contacto por fila. Se lee de un tirón del ContentResolver.
+     */
+    fun getAllContacts(): List<ContactRow> {
+        val cursor = context.contentResolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY,
+                ContactsContract.CommonDataKinds.Phone.NUMBER,
+            ),
+            null,
+            null,
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY + " ASC",
+        ) ?: return emptyList()
+
+        val seen = HashSet<String>()
+        val out = mutableListOf<ContactRow>()
+        cursor.use {
+            val nameCol = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY)
+            val numCol = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            if (nameCol < 0 || numCol < 0) return emptyList()
+            while (it.moveToNext()) {
+                val name = it.getString(nameCol)?.trim() ?: continue
+                val phone = it.getString(numCol)?.trim() ?: continue
+                if (name.isBlank() || phone.isBlank()) continue
+                if (seen.add(name.lowercase())) {
+                    out.add(ContactRow(name, phone))
+                }
+            }
+        }
+        Log.d(TAG, "getAllContacts -> ${out.size}")
+        return out
+    }
 
     /**
      * Devuelve los nombres de todos los contactos. Se usa para

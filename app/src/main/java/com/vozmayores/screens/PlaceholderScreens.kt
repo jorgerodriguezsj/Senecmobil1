@@ -16,13 +16,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun ContactsScreen(onBack: () -> Unit) = PlaceholderScreen(
-    title = "Contactos",
-    body = "Aquí verás tu agenda con los botones grandes de llamar y mandar mensaje. Pronto.",
-    onBack = onBack,
-)
-
-@Composable
 fun MessagesScreen(onBack: () -> Unit) = PlaceholderScreen(
     title = "Mensajes",
     body = "Aquí verás las últimas conversaciones. Pronto.",

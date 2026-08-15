@@ -40,13 +40,23 @@ class ToolExecutor(
             }
             is IntentAction.WhatsApp -> {
                 val phone = contactResolver.resolvePhoneNumber(action.contact)
+                val hasMsg = action.message.isNotBlank()
                 when {
                     phone == null -> noContact(action.contact)
-                    simulate -> sim("Mandaría un WhatsApp a ${action.contact} al $phone que dice: ${action.message}.")
+                    simulate -> sim(
+                        if (hasMsg) "Mandaría un WhatsApp a ${action.contact} al $phone que dice: ${action.message}."
+                        else "Abriría WhatsApp con ${action.contact} al $phone."
+                    )
                     else -> {
-                        tts.speak("Mando un WhatsApp a ${action.contact} que dice: ${action.message}.")
+                        tts.speak(
+                            if (hasMsg) "Mando un WhatsApp a ${action.contact} que dice: ${action.message}."
+                            else "Abro WhatsApp con ${action.contact}."
+                        )
                         WhatsAppAction.perform(context, phone, action.message).fold(
-                            onSuccess = { "WhatsApp a ${action.contact}: \"${action.message}\"" },
+                            onSuccess = {
+                                if (hasMsg) "WhatsApp a ${action.contact}: \"${action.message}\""
+                                else "WhatsApp con ${action.contact}"
+                            },
                             onFailure = { fail("abrir WhatsApp", it) },
                         )
                     }

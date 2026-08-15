@@ -147,6 +147,17 @@ fun PushToTalkScreen() {
     var history by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     var simulate by remember { mutableStateOf(true) }
 
+    fun fireIntent(action: IntentAction) {
+        scope.launch {
+            busy = true
+            status = if (simulate) "Simulando…" else "Ejecutando…"
+            val msg = executor.execute(action, simulate)
+            record(action, simulate, msg, IntentSource.LOCAL)
+            status = "Listo"
+            busy = false
+        }
+    }
+
     suspend fun record(
         intent: IntentAction,
         simulated: Boolean,
@@ -254,7 +265,12 @@ fun PushToTalkScreen() {
                                 transcript = transcript,
                                 lastEntry = history.firstOrNull(),
                             )
-                            Screen.Contacts -> ContactsScreen(onBack = { nav.home() })
+                            Screen.Contacts -> ContactsScreen(
+                                contactResolver = contactResolver,
+                                onBack = { nav.home() },
+                                onCall = { name -> fireIntent(IntentAction.Call(name)) },
+                                onWhatsApp = { name -> fireIntent(IntentAction.WhatsApp(name, "")) },
+                            )
                             Screen.Messages -> MessagesScreen(onBack = { nav.home() })
                             Screen.Alarms -> AlarmsScreen(onBack = { nav.home() })
                             Screen.Help -> HelpScreen(onBack = { nav.home() })
