@@ -8,6 +8,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -62,6 +63,13 @@ import com.vozmayores.intent.IntentSource
 import com.vozmayores.intent.LocalMatcher
 import com.vozmayores.llm.AgentLoop
 import com.vozmayores.llm.LlmEngine
+import com.vozmayores.nav.AppNav
+import com.vozmayores.nav.Screen
+import com.vozmayores.screens.AlarmsScreen
+import com.vozmayores.screens.ContactsScreen
+import com.vozmayores.screens.HelpScreen
+import com.vozmayores.screens.HomeScreen
+import com.vozmayores.screens.MessagesScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -83,10 +91,15 @@ fun PushToTalkScreen() {
     val router = remember { IntentRouter(matcher = LocalMatcher(), agent = AgentLoop()) }
     val contactResolver = remember { ContactResolver(context) }
     val tts = remember { Tts(context) }
-    val executor = remember { ToolExecutor(context, tts, contactResolver) }
+    val nav = remember { AppNav() }
+    val executor = remember { ToolExecutor(context, tts, contactResolver, nav) }
     val scope = rememberCoroutineScope()
     val haptics = remember { HapticFeedback(context) }
     val level by recorder.level.collectAsState()
+
+    // Botón atrás de Android: si estamos dentro de una pantalla,
+    // vuelve al Home; si estamos en Home dejamos que Android cierre.
+    BackHandler(enabled = !nav.isAtHome) { nav.home() }
 
     DisposableEffect(tts) { onDispose { tts.shutdown() } }
 
@@ -210,35 +223,42 @@ fun PushToTalkScreen() {
                     Spacer(modifier = Modifier.height(10.dp))
 
                     InnerScreen(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        ScreenContent(
-                            simulate = simulate,
-                            onSimulateChange = { simulate = it },
-                            busy = busy,
-                            probeEnabled = !busy && modelReady,
-                            onProbeClick = {
-                                scope.launch {
-                                    busy = true
-                                    val sampleName = contactNames.firstOrNull() ?: "Pepe"
-                                    val battery = listOf(
-                                        IntentAction.Call(sampleName),
-                                        IntentAction.WhatsApp(sampleName, "hola, esto es una prueba"),
-                                        IntentAction.Sms(sampleName, "hola, esto es una prueba"),
-                                        IntentAction.Alarm(hour = 8, minute = 30),
-                                    )
-                                    transcript = "(probar todo)"
-                                    battery.forEachIndexed { i, act ->
-                                        status = "Probando ${i + 1}/${battery.size}…"
-                                        val msg = executor.execute(act, simulate = true)
-                                        record(act, simulated = true, message = msg)
+                        when (nav.current) {
+                            Screen.Home -> HomeScreen(
+                                onOpen = { nav.open(it) },
+                                simulate = simulate,
+                                onSimulateChange = { simulate = it },
+                                settingsEnabled = !busy,
+                                probeEnabled = !busy && modelReady,
+                                onProbeClick = {
+                                    scope.launch {
+                                        busy = true
+                                        val sampleName = contactNames.firstOrNull() ?: "Pepe"
+                                        val battery = listOf(
+                                            IntentAction.Call(sampleName),
+                                            IntentAction.WhatsApp(sampleName, "hola, esto es una prueba"),
+                                            IntentAction.Sms(sampleName, "hola, esto es una prueba"),
+                                            IntentAction.Alarm(hour = 8, minute = 30),
+                                        )
+                                        transcript = "(probar todo)"
+                                        battery.forEachIndexed { i, act ->
+                                            status = "Probando ${i + 1}/${battery.size}…"
+                                            val msg = executor.execute(act, simulate = true)
+                                            record(act, simulated = true, message = msg)
+                                        }
+                                        status = "Listo"
+                                        busy = false
                                     }
-                                    status = "Listo"
-                                    busy = false
-                                }
-                            },
-                            status = status,
-                            transcript = transcript,
-                            history = history,
-                        )
+                                },
+                                status = status,
+                                transcript = transcript,
+                                lastEntry = history.firstOrNull(),
+                            )
+                            Screen.Contacts -> ContactsScreen(onBack = { nav.home() })
+                            Screen.Messages -> MessagesScreen(onBack = { nav.home() })
+                            Screen.Alarms -> AlarmsScreen(onBack = { nav.home() })
+                            Screen.Help -> HelpScreen(onBack = { nav.home() })
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -306,123 +326,6 @@ fun PushToTalkScreen() {
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ScreenContent(
-    simulate: Boolean,
-    onSimulateChange: (Boolean) -> Unit,
-    busy: Boolean,
-    probeEnabled: Boolean,
-    onProbeClick: () -> Unit,
-    status: String,
-    transcript: String,
-    history: List<HistoryEntry>,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = "Voz",
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Black,
-            color = VozColors.KnobRedDark,
-        )
-        Text(
-            text = "Mantén pulsado el botón rojo y habla",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp),
-        )
-
-        SettingsRow(
-            simulate = simulate,
-            onSimulateChange = onSimulateChange,
-            enabled = !busy,
-            onProbeClick = onProbeClick,
-            probeEnabled = probeEnabled,
-        )
-
-        if (status.isNotBlank()) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = status,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        if (transcript.isNotBlank()) {
-            Text(
-                text = "«$transcript»",
-                modifier = Modifier.padding(top = 14.dp, start = 8.dp, end = 8.dp),
-                fontSize = 18.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center,
-            )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        history.forEach { entry -> ActionCard(entry) }
-
-        Spacer(modifier = Modifier.height(20.dp))
-    }
-}
-
-@Composable
-private fun SettingsRow(
-    simulate: Boolean,
-    onSimulateChange: (Boolean) -> Unit,
-    enabled: Boolean,
-    onProbeClick: () -> Unit,
-    probeEnabled: Boolean,
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Modo simulación",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = if (simulate) "Anuncia sin ejecutar" else "Ejecuta las acciones",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(checked = simulate, onCheckedChange = onSimulateChange, enabled = enabled)
-        }
-
-        OutlinedButton(
-            enabled = probeEnabled,
-            onClick = onProbeClick,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp),
-            shape = RoundedCornerShape(12.dp),
-        ) {
-            Text("Probar todo", fontSize = 13.sp)
         }
     }
 }

@@ -16,6 +16,8 @@ Herramientas:
 - whatsapp(contacto, mensaje)       manda WhatsApp
 - sms(contacto, mensaje)            manda SMS
 - alarma(hora, etiqueta?)           hora en formato HH:MM (24h)
+- abrir(pantalla)                   abre una pantalla del móvil. Valores: contactos, mensajes, alarmas, ayuda, inicio
+- volver()                          vuelve al inicio
 - responder(texto)                  cuando no hay acción, solo respuesta hablada
 """.trim()
 }

@@ -2,6 +2,7 @@ package com.vozmayores.llm
 
 import android.util.Log
 import com.vozmayores.intent.IntentAction
+import com.vozmayores.nav.Screen
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -47,6 +48,8 @@ class AgentLoop {
             append("llama a pepe → {\"tool\":\"llamar\",\"args\":{\"contacto\":\"Pepe\"}}\n")
             append("wasap a maria diciendo hola → {\"tool\":\"whatsapp\",\"args\":{\"contacto\":\"María\",\"mensaje\":\"hola\"}}\n")
             append("alarma a las 8 → {\"tool\":\"alarma\",\"args\":{\"hora\":\"08:00\"}}\n")
+            append("abre contactos → {\"tool\":\"abrir\",\"args\":{\"pantalla\":\"contactos\"}}\n")
+            append("vuelve al inicio → {\"tool\":\"volver\",\"args\":{}}\n")
             append("no sé qué decirte → {\"tool\":\"responder\",\"args\":{\"texto\":\"Vale.\"}}\n")
             append("<|im_end|>\n")
             append("<|im_start|>user\n")
@@ -116,6 +119,21 @@ class AgentLoop {
                     ?.trim()?.takeIf { it.isNotBlank() }
                 IntentAction.Alarm(h, m, label)
             }
+
+            "abrir", "abre", "open", "navegar", "ir" -> {
+                val target = strArg(args, "pantalla", "screen", "app", "seccion", "section")
+                if (target.isNullOrBlank()) null
+                else {
+                    val s = Screen.fromString(target)
+                    when {
+                        s == null -> null
+                        s == Screen.Home -> IntentAction.Back
+                        else -> IntentAction.Open(s)
+                    }
+                }
+            }
+
+            "volver", "back", "atras", "home", "inicio" -> IntentAction.Back
 
             "responder", "respond", "reply", "speak", "say" -> {
                 val text = strArg(args, "texto", "text", "mensaje", "response")

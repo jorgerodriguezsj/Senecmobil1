@@ -1,5 +1,7 @@
 package com.vozmayores.intent
 
+import com.vozmayores.nav.Screen
+
 /**
  * Matcher regex ampliado. Todo el texto pasa por [normalize] que
  * quita puntuacion y tildes y baja a minusculas, asi las regex son
@@ -17,6 +19,20 @@ class LocalMatcher {
     fun match(text: String): IntentAction? {
         val t = normalize(text)
         if (t.isEmpty()) return null
+
+        // Navegación primero — es lo más barato de detectar.
+        BACK_PATTERNS.forEach { p ->
+            if (p.matches(t)) return IntentAction.Back
+        }
+        OPEN_PATTERNS.forEach { p ->
+            p.find(t)?.let { m ->
+                val what = m.groupValues[1].trim()
+                Screen.fromString(what)?.let { screen ->
+                    return if (screen == Screen.Home) IntentAction.Back
+                    else IntentAction.Open(screen)
+                }
+            }
+        }
 
         for (p in CALL_PATTERNS) {
             p.find(t)?.let { m ->
@@ -154,6 +170,17 @@ class LocalMatcher {
             "diecisiete" to 17, "dieciocho" to 18, "diecinueve" to 19,
             "veinte" to 20, "veintiuna" to 21, "veintiuno" to 21,
             "veintidos" to 22, "veintitres" to 23, "veinticuatro" to 24,
+        )
+
+        // Navegación
+        private val OPEN_PATTERNS = listOf(
+            Regex("^${POLITE}(?:abre|abrir|abreme|abrele|ve\\s+a|vete\\s+a|ir\\s+a|entra\\s+en|mira|muestra(?:me)?|ensena(?:me)?)\\s+" +
+                "(?:la\\s+|el\\s+)?(?:pantalla\\s+de\\s+|app\\s+de\\s+|aplicacion\\s+de\\s+|seccion\\s+de\\s+)?(.+)$"),
+        )
+        private val BACK_PATTERNS = listOf(
+            Regex("^${POLITE}(?:vuelve|volver|volvamos|vete|regresa|regresar|atras)(?:\\s+al?\\s+(?:inicio|principio|home|menu))?$"),
+            Regex("^${POLITE}(?:inicio|home|menu\\s+principal)$"),
+            Regex("^${POLITE}cierra(?:me)?\\s+(?:la\\s+)?(?:pantalla|app|aplicacion)$"),
         )
 
         private val MIN_WORDS: Map<String, Int> = mapOf(

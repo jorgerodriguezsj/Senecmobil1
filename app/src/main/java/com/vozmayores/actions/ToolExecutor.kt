@@ -3,6 +3,7 @@ package com.vozmayores.actions
 import android.content.Context
 import android.util.Log
 import com.vozmayores.intent.IntentAction
+import com.vozmayores.nav.AppNav
 
 private const val TAG = "Voz.ToolExecutor"
 
@@ -10,6 +11,7 @@ class ToolExecutor(
     private val context: Context,
     private val tts: Tts,
     private val contactResolver: ContactResolver,
+    private val nav: AppNav,
 ) {
     /**
      * Anuncia por TTS la acción y la ejecuta. Devuelve un mensaje corto
@@ -79,6 +81,24 @@ class ToolExecutor(
             is IntentAction.Respond -> {
                 tts.speak(action.text)
                 action.text
+            }
+            is IntentAction.Open -> {
+                if (simulate) {
+                    sim("Abriría ${action.screen.title}.")
+                } else {
+                    tts.speak("Abro ${action.screen.title}.")
+                    nav.open(action.screen)
+                    "Abriendo ${action.screen.title}"
+                }
+            }
+            IntentAction.Back -> {
+                if (simulate) {
+                    sim("Volvería al inicio.")
+                } else {
+                    tts.speak("Vuelvo al inicio.")
+                    nav.home()
+                    "Inicio"
+                }
             }
             IntentAction.Unknown -> {
                 val msg = "No te he entendido, prueba otra vez."
