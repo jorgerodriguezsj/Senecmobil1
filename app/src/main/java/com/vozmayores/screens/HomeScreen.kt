@@ -38,6 +38,8 @@ fun HomeScreen(
     onOpen: (Screen) -> Unit,
     simulate: Boolean,
     onSimulateChange: (Boolean) -> Unit,
+    vadEnabled: Boolean,
+    onVadChange: (Boolean) -> Unit,
     settingsEnabled: Boolean,
     probeEnabled: Boolean,
     onProbeClick: () -> Unit,
@@ -95,6 +97,8 @@ fun HomeScreen(
         SettingsRow(
             simulate = simulate,
             onSimulateChange = onSimulateChange,
+            vadEnabled = vadEnabled,
+            onVadChange = onVadChange,
             enabled = settingsEnabled,
             probeEnabled = probeEnabled,
             onProbeClick = onProbeClick,
@@ -134,34 +138,29 @@ fun HomeScreen(
 private fun SettingsRow(
     simulate: Boolean,
     onSimulateChange: (Boolean) -> Unit,
+    vadEnabled: Boolean,
+    onVadChange: (Boolean) -> Unit,
     enabled: Boolean,
     probeEnabled: Boolean,
     onProbeClick: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Modo simulación",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = if (simulate) "Anuncia sin ejecutar" else "Ejecuta las acciones",
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(checked = simulate, onCheckedChange = onSimulateChange, enabled = enabled)
-        }
+        ToggleRow(
+            title = "Modo simulación",
+            subtitle = if (simulate) "Anuncia sin ejecutar" else "Ejecuta las acciones",
+            checked = simulate,
+            onCheckedChange = onSimulateChange,
+            enabled = enabled,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        ToggleRow(
+            title = "Soltar al callar",
+            subtitle = if (vadEnabled) "La app suelta sola cuando te callas"
+            else "Suelta el botón tú a mano",
+            checked = vadEnabled,
+            onCheckedChange = onVadChange,
+            enabled = enabled,
+        )
         OutlinedButton(
             enabled = probeEnabled,
             onClick = onProbeClick,
@@ -172,6 +171,39 @@ private fun SettingsRow(
         ) {
             Text("Probar todo", fontSize = 13.sp)
         }
+    }
+}
+
+@Composable
+private fun ToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = subtitle,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

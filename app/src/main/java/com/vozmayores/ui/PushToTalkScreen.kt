@@ -71,11 +71,24 @@ import com.vozmayores.screens.HelpScreen
 import com.vozmayores.screens.HomeScreen
 import com.vozmayores.screens.MessagesScreen
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "Voz.PushToTalkScreen"
 private const val MAX_CONTACTS_IN_PROMPT = 60
+
+// --- VAD (voice activity detection) ---
+// Niveles esperados de AudioRecorder.computeLevel (normalizado dB):
+//   silencio ~0.0, ambiente/quieto ~0.15-0.30, voz ~0.5-0.7, grito ~0.8+
+private const val VAD_VOICE_THRESHOLD = 0.42f
+private const val VAD_SILENCE_THRESHOLD = 0.28f
+private const val VAD_SILENCE_HOLD_MS = 1000L
+private const val VAD_MIN_HOLD_MS = 500L
+private const val VAD_POLL_MS = 60L
 
 private val REQUESTED_PERMISSIONS = arrayOf(
     Manifest.permission.RECORD_AUDIO,
@@ -147,6 +160,7 @@ fun PushToTalkScreen() {
     var transcript by remember { mutableStateOf("") }
     var history by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     var simulate by remember { mutableStateOf(prefs.simulate) }
+    var vadEnabled by remember { mutableStateOf(prefs.vadEnabled) }
 
     suspend fun record(
         intent: IntentAction,
@@ -172,6 +186,45 @@ fun PushToTalkScreen() {
             status = if (simulate) "Simulando…" else "Ejecutando…"
             val msg = executor.execute(action, simulate)
             record(action, simulate, msg, IntentSource.LOCAL)
+            status = "Listo"
+            busy = false
+        }
+    }
+
+    // requestStop se llama tanto por el "finger up" del gesto como por
+    // el VAD si detecta silencio. El primer llamador que llegue arranca
+    // el pipeline; el segundo ve pressed=false y devuelve.
+    fun requestStop() {
+        if (!pressed) return
+        pressed = false
+        haptics.buzz(60)
+        Log.d(TAG, "PTT up")
+        busy = true
+        status = "Procesando…"
+        scope.launch {
+            val samples = recorder.stop()
+            if (samples.isEmpty()) {
+                status = "No se capturó audio"
+                busy = false
+                return@launch
+            }
+            val secs = samples.size / AudioRecorder.SAMPLE_RATE_HZ
+            status = "Transcribiendo… (${secs}s)"
+            val text = withContext(Dispatchers.IO) {
+                WhisperEngine.transcribe(
+                    samples = samples,
+                    language = "es",
+                    initialPrompt = initialPrompt,
+                )
+            }
+            transcript = text.trim().ifEmpty { "(silencio)" }
+            status = if (llmReady) "Interpretando…" else "Buscando comando…"
+            val routed = withContext(Dispatchers.IO) {
+                router.route(transcript, contactNames)
+            }
+            status = if (simulate) "Simulando…" else "Ejecutando…"
+            val msg = executor.execute(routed.action, simulate)
+            record(routed.action, simulate, msg, routed.source, routed.llmRaw)
             status = "Listo"
             busy = false
         }
@@ -240,6 +293,8 @@ fun PushToTalkScreen() {
                                 onOpen = { nav.open(it) },
                                 simulate = simulate,
                                 onSimulateChange = { simulate = it; prefs.simulate = it },
+                                vadEnabled = vadEnabled,
+                                onVadChange = { vadEnabled = it; prefs.vadEnabled = it },
                                 settingsEnabled = !busy,
                                 probeEnabled = !busy && modelReady,
                                 onProbeClick = {
@@ -299,41 +354,24 @@ fun PushToTalkScreen() {
                                         pressed = true
                                         haptics.buzz(30)
                                         status = "Escuchando…"
+
+                                        val vadJob: Job? = if (vadEnabled) {
+                                            scope.launch {
+                                                vadWatch(
+                                                    getLevel = { recorder.level.value },
+                                                    onSilence = {
+                                                        status = "Detectado silencio"
+                                                        requestStop()
+                                                    },
+                                                )
+                                            }
+                                        } else null
+
                                         try {
                                             tryAwaitRelease()
                                         } finally {
-                                            pressed = false
-                                            haptics.buzz(60)
-                                            Log.d(TAG, "PTT up")
-                                            busy = true
-                                            status = "Procesando…"
-                                            scope.launch {
-                                                val samples = recorder.stop()
-                                                if (samples.isEmpty()) {
-                                                    status = "No se capturó audio"
-                                                    busy = false
-                                                    return@launch
-                                                }
-                                                val secs = samples.size / AudioRecorder.SAMPLE_RATE_HZ
-                                                status = "Transcribiendo… (${secs}s)"
-                                                val text = withContext(Dispatchers.IO) {
-                                                    WhisperEngine.transcribe(
-                                                        samples = samples,
-                                                        language = "es",
-                                                        initialPrompt = initialPrompt,
-                                                    )
-                                                }
-                                                transcript = text.trim().ifEmpty { "(silencio)" }
-                                                status = if (llmReady) "Interpretando…" else "Buscando comando…"
-                                                val routed = withContext(Dispatchers.IO) {
-                                                    router.route(transcript, contactNames)
-                                                }
-                                                status = if (simulate) "Simulando…" else "Ejecutando…"
-                                                val msg = executor.execute(routed.action, simulate)
-                                                record(routed.action, simulate, msg, routed.source, routed.llmRaw)
-                                                status = "Listo"
-                                                busy = false
-                                            }
+                                            vadJob?.cancel()
+                                            requestStop()
                                         }
                                     }
                                 }
@@ -343,6 +381,39 @@ fun PushToTalkScreen() {
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Poll simple sobre el nivel del micro. Espera al menos MIN_HOLD_MS
+ * a que aparezca voz antes de considerar silencio, y una vez que el
+ * usuario ha hablado, si el nivel se mantiene por debajo del umbral
+ * de silencio durante SILENCE_HOLD_MS, dispara `onSilence()`.
+ * Sin voz durante toda la pulsación: no dispara.
+ */
+private suspend fun vadWatch(
+    getLevel: () -> Float,
+    onSilence: () -> Unit,
+) {
+    val start = System.currentTimeMillis()
+    var hasSpoken = false
+    var lastVoice = start
+    while (currentCoroutineContext().isActive) {
+        delay(VAD_POLL_MS)
+        val lvl = getLevel()
+        val now = System.currentTimeMillis()
+        if (now - start < VAD_MIN_HOLD_MS) continue
+        if (lvl >= VAD_VOICE_THRESHOLD) {
+            hasSpoken = true
+            lastVoice = now
+        } else if (
+            hasSpoken &&
+            lvl < VAD_SILENCE_THRESHOLD &&
+            now - lastVoice > VAD_SILENCE_HOLD_MS
+        ) {
+            onSilence()
+            return
         }
     }
 }
