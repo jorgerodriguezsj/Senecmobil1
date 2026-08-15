@@ -95,6 +95,7 @@ fun PushToTalkScreen() {
     val executor = remember { ToolExecutor(context, tts, contactResolver, nav) }
     val scope = rememberCoroutineScope()
     val haptics = remember { HapticFeedback(context) }
+    val prefs = remember { Prefs(context) }
     val level by recorder.level.collectAsState()
 
     // Botón atrás de Android: si estamos dentro de una pantalla,
@@ -145,7 +146,7 @@ fun PushToTalkScreen() {
     var status by remember { mutableStateOf("") }
     var transcript by remember { mutableStateOf("") }
     var history by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
-    var simulate by remember { mutableStateOf(true) }
+    var simulate by remember { mutableStateOf(prefs.simulate) }
 
     suspend fun record(
         intent: IntentAction,
@@ -238,7 +239,7 @@ fun PushToTalkScreen() {
                             Screen.Home -> HomeScreen(
                                 onOpen = { nav.open(it) },
                                 simulate = simulate,
-                                onSimulateChange = { simulate = it },
+                                onSimulateChange = { simulate = it; prefs.simulate = it },
                                 settingsEnabled = !busy,
                                 probeEnabled = !busy && modelReady,
                                 onProbeClick = {
